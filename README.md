@@ -15,7 +15,12 @@ A collection of practical notes and patterns for building backend applications w
 - **[Async Tutorial](concurrency/async_tutorial.md)** - Understanding asyncio, event loops, and async patterns
 
 ### FastAPI
-- **[Scalable API Calls](fastapi/scalable_api_calls.md)** - Production patterns for safe and scalable LLM/agent calls in FastAPI
+- **[Production Guide: Safe and Scalable LLM & Agent Calls](fastapi/README.md)** - Comprehensive guide for safely calling LLMs and external services from FastAPI
+  - [Part 1: Fundamentals](fastapi/01_fundamentals.md) - Core concepts, mental models, and foundational patterns
+  - [Part 2: Production Implementation](fastapi/02_production_implementation.md) - FastAPI integration and production patterns
+  - [Part 3: Kubernetes & Distributed Systems](fastapi/03_kubernetes_and_distributed_systems.md) - Multi-pod concerns and distributed thinking
+  - [Part 4: Complete Production Architecture](fastapi/04_complete_production_architecture.md) - Full stack from API Gateway to vendor calls
+  - [Part 5: Advanced Topics](fastapi/05_advanced_topics.md) - Pod-aware resilience patterns (circuit breakers, priority queues, adaptive retry)
 
 ### Background Tasks
 - **[Background Tasks and Queues](background_tasks/background_tasks_and_queues.md)** - Celery vs FastAPI BackgroundTasks vs AsyncIOScheduler
