@@ -15,6 +15,7 @@ A collection of practical notes and patterns for building backend applications w
 - **[Async Tutorial](concurrency/async_tutorial.md)** - Understanding asyncio, event loops, and async patterns
 
 ### FastAPI
+- **[Dependency Injection](fastapi/dependency_injection.md)** - Practical guide to FastAPI's built-in dependency injection system
 - **[Production Guide: Safe and Scalable LLM & Agent Calls](fastapi/README.md)** - Comprehensive guide for safely calling LLMs and external services from FastAPI
   - [Part 1: Fundamentals](fastapi/01_fundamentals.md) - Core concepts, mental models, and foundational patterns
   - [Part 2: Production Implementation](fastapi/02_production_implementation.md) - FastAPI integration and production patterns
