@@ -12,6 +12,7 @@ This is the **recommended baseline** for LLM or external API calls:
 import asyncio
 import httpx
 import random
+from aiolimiter import AsyncLimiter
 
 
 class RetryableError(Exception):
@@ -22,6 +23,12 @@ class RetryableError(Exception):
 class FinalFailure(Exception):
     """Permanent failure after all retries exhausted"""
     pass
+
+
+# === GLOBAL PRIMITIVES (must be created once at app startup) ===
+llm_sem = asyncio.Semaphore(50)           # Local concurrency control
+llm_rate = AsyncLimiter(60, 60)           # Local rate limiting (60/min)
+client: httpx.AsyncClient = None          # Initialized in startup event
 
 
 def backoff(attempt: int) -> float:

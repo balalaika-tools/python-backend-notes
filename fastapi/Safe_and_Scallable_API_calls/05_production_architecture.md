@@ -152,7 +152,38 @@ uvicorn app:app \
 |------|---------|
 | `--limit-concurrency` | Max in-flight requests per worker |
 | `--backlog` | Queued connections before refusal |
-| `--timeout-keep-alive` | Keep-alive timeout |
+| `--timeout-keep-alive` | How long to keep idle connections open |
+
+### Understanding `--timeout-keep-alive`
+
+**What it is**: How long (in seconds) Uvicorn keeps an idle HTTP connection open waiting for another request.
+
+**HTTP Keep-Alive recap**:
+- HTTP/1.1 reuses connections by default
+- Client sends request → server responds → connection stays open
+- Client can send another request without new TCP handshake
+
+**The `--timeout-keep-alive` setting**:
+
+```
+Client sends request
+  ↓
+Server responds
+  ↓
+Connection idle, timer starts (5s default)
+  ↓
+If no new request within 5s → connection closed
+If new request arrives → timer resets
+```
+
+**Why 5 seconds is a good default**:
+- Long enough for typical request bursts
+- Short enough to reclaim resources from abandoned connections
+- Prevents connection pool exhaustion from idle clients
+
+**When to adjust**:
+- **Lower (2-3s)**: High traffic, many clients, resource constrained
+- **Higher (10-15s)**: Long-polling patterns, clients make periodic requests
 
 ### Why This Matters
 
@@ -237,6 +268,23 @@ Vendor limits are:
 Every outbound vendor call **must pass through this**.
 
 ```python
+import asyncio
+import httpx
+from aiolimiter import AsyncLimiter
+from fastapi import HTTPException
+
+# === GLOBAL PRIMITIVES (initialized at startup) ===
+llm_sem = asyncio.Semaphore(50)
+llm_rate_local = AsyncLimiter(80, 60)
+client: httpx.AsyncClient = None
+vendor_limiter: GlobalVendorRateLimiter = None  # See Part 4 for implementation
+
+
+def backoff(attempt: int) -> float:
+    import random
+    return min(2 ** attempt, 32) + random.uniform(0, 1)
+
+
 async def call_llm(payload: dict):
     for attempt in range(3):
         try:
@@ -248,7 +296,10 @@ async def call_llm(payload: dict):
                     
                     async with llm_sem:  # Local capacity
                         async with asyncio.timeout(30):  # Call timeout
-                            response = await client.post(url, json=payload)
+                            response = await client.post(
+                                "https://api.openai.com/v1/chat/completions",
+                                json=payload,
+                            )
                             response.raise_for_status()
                             return response.json()
         
@@ -257,6 +308,12 @@ async def call_llm(payload: dict):
                 await asyncio.sleep(backoff(attempt))
                 continue
             raise HTTPException(429, "Vendor rate limit exceeded")
+        
+        except httpx.TimeoutException:
+            if attempt < 2:
+                await asyncio.sleep(backoff(attempt))
+                continue
+            raise HTTPException(504, "Vendor timeout")
 ```
 
 ---

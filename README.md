@@ -31,6 +31,8 @@ A collection of practical notes and patterns for building backend applications w
   - [Part 4: Kubernetes](fastapi/Safe_and_Scallable_API_calls/04_kubernetes.md) - Multi-pod concerns, local vs global
   - [Part 5: Production Architecture](fastapi/Safe_and_Scallable_API_calls/05_production_architecture.md) - Complete stack, execution order
   - [Part 6: Advanced Patterns](fastapi/Safe_and_Scallable_API_calls/06_advanced_patterns.md) - Circuit breakers, priority queues, load shedding
+  - [Part 7: Streaming Patterns](fastapi/Safe_and_Scallable_API_calls/07_streaming_patterns.md) - SSE, streaming timeouts, semaphore duration
+  - [Part 8: Streaming Advanced](fastapi/Safe_and_Scallable_API_calls/08_streaming_advanced.md) - Multi-stream, aggregation, partial recovery
 
 ### Background Tasks
 - **[Background Tasks and Queues](background_tasks/background_tasks_and_queues.md)** - Celery vs FastAPI BackgroundTasks vs AsyncIOScheduler

@@ -209,8 +209,15 @@ Only a **shared, cluster-wide limiter** can enforce:
 ## 6. Redis-Based Global Rate Limiter
 
 ```python
+import asyncio
 import redis.asyncio as redis
 import time
+from fastapi import HTTPException
+
+
+class VendorRateLimitExceeded(Exception):
+    """Raised when vendor rate limit is exceeded after waiting."""
+    pass
 
 
 class GlobalVendorRateLimiter:
@@ -233,7 +240,7 @@ class GlobalVendorRateLimiter:
     
     async def acquire(self) -> bool:
         """
-        Try to acquire a token.
+        Try to acquire a token immediately.
         Returns True if acquired, False if rate limit exceeded.
         """
         now = time.time()
@@ -253,24 +260,88 @@ class GlobalVendorRateLimiter:
         await self.redis.expire(self.key, self.window + 10)
         
         return True
+    
+    async def wait_and_acquire(self, timeout: float = 5.0) -> None:
+        """
+        Wait up to timeout seconds to acquire a token.
+        
+        Why wait instead of immediate rejection?
+        - Avoids socket overhead from client retries
+        - Reduces connection churn
+        - Smooths burst traffic
+        - Often succeeds within a few hundred ms
+        
+        Raises:
+            VendorRateLimitExceeded: if timeout exceeded without acquiring.
+        """
+        start = time.time()
+        
+        while True:
+            if await self.acquire():
+                return  # Success
+            
+            elapsed = time.time() - start
+            if elapsed >= timeout:
+                raise VendorRateLimitExceeded(
+                    f"Could not acquire vendor token within {timeout}s"
+                )
+            
+            # Brief wait before retry - avoids Redis hammering
+            # and often succeeds as other requests complete
+            await asyncio.sleep(0.1)
 
 
-# Usage
+# === GLOBAL INITIALIZATION (at app startup) ===
+redis_client: redis.Redis = None
+
 vendor_limiter = GlobalVendorRateLimiter(
-    redis_client=redis_client,
+    redis_client=redis_client,  # Set during startup
     vendor_key="openai",
     limit=500,
     window_seconds=60,
 )
+```
+
+### Two Approaches: Immediate vs Wait
+
+| Approach | Use when | Behavior |
+|----------|----------|----------|
+| `acquire()` | Need instant decision | Returns bool immediately |
+| `wait_and_acquire()` | Can tolerate brief wait | Waits up to timeout, then fails |
+
+**Why `wait_and_acquire` is often better:**
+
+- Client retry creates new TCP connection → expensive
+- Waiting 100-200ms often succeeds as tokens become available
+- Reduces overall system load
+- Smoother traffic pattern
+
+### Usage with Local Protections
+
+```python
+import asyncio
+import httpx
+from aiolimiter import AsyncLimiter
+
+# === GLOBAL PRIMITIVES (created once at startup) ===
+llm_sem = asyncio.Semaphore(50)
+llm_rate_local = AsyncLimiter(80, 60)
+client: httpx.AsyncClient = None
+
 
 async def call_llm(payload: dict):
-    # Global vendor protection
-    if not await vendor_limiter.acquire():
-        raise HTTPException(429, "Vendor rate limit")
+    # Global vendor protection with wait
+    await vendor_limiter.wait_and_acquire(timeout=3.0)
     
     # Local capacity protection
     async with llm_sem:
-        return await client.post(...)
+        async with asyncio.timeout(30):
+            response = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                json=payload,
+            )
+            response.raise_for_status()
+            return response.json()
 ```
 
 ---

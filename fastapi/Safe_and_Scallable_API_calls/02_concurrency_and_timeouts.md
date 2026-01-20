@@ -16,8 +16,8 @@ There are **multiple timeout layers**, each serving a different purpose:
 │  │  ┌─────────────────────────────┐  │  │
 │  │  │     Call Timeout            │  │  │ ← Per-attempt budget
 │  │  │  ┌───────────────────────┐  │  │  │
-│  │  │  │   Client Timeouts    │  │  │  │ ← Socket-level control
-│  │  │  │ (connect/read/write) │  │  │  │
+│  │  │  │   Client Timeouts     │  │  │  │ ← Socket-level control
+│  │  │  │ (connect/read/write)  │  │  │  │
 │  │  │  └───────────────────────┘  │  │  │
 │  │  └─────────────────────────────┘  │  │
 │  └───────────────────────────────────┘  │

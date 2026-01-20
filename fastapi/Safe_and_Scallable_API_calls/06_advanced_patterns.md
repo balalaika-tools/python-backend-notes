@@ -633,4 +633,6 @@ This prevents:
 
 ---
 
-**This completes the guide to safe, scalable external API calls in production FastAPI services.**
+---
+
+**Next**: [Part 7: Streaming Patterns](07_streaming_patterns.md) — how streaming changes timeout semantics, concurrency, and cancellation.

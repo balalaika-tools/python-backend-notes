@@ -31,6 +31,8 @@ The only hard concurrency limit in an external API system is imposed by the **HT
 | [04](04_kubernetes.md) | Kubernetes | Multi-pod concerns, local vs global limits |
 | [05](05_production_architecture.md) | Production Architecture | Complete stack, execution order, deployment |
 | [06](06_advanced_patterns.md) | Advanced Patterns | Circuit breakers, priority queues, load shedding |
+| [07](07_streaming_patterns.md) | Streaming Patterns | SSE, streaming timeouts, semaphore duration |
+| [08](08_streaming_advanced.md) | Streaming Advanced | Multi-stream, aggregation, circuit breakers for streaming |
 
 ---
 

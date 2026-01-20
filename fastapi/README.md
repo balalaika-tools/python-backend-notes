@@ -22,6 +22,8 @@ Production-ready patterns and best practices for FastAPI applications.
   | [04](Safe_and_Scallable_API_calls/04_kubernetes.md) | Kubernetes | Multi-pod concerns, local vs global |
   | [05](Safe_and_Scallable_API_calls/05_production_architecture.md) | Production Architecture | Complete stack, execution order |
   | [06](Safe_and_Scallable_API_calls/06_advanced_patterns.md) | Advanced Patterns | Circuit breakers, priority queues |
+  | [07](Safe_and_Scallable_API_calls/07_streaming_patterns.md) | Streaming Patterns | SSE, streaming timeouts |
+  | [08](Safe_and_Scallable_API_calls/08_streaming_advanced.md) | Streaming Advanced | Multi-stream, aggregation |
 
 ---
 
