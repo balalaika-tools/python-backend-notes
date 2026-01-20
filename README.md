@@ -4,6 +4,14 @@ A collection of practical notes and patterns for building backend applications w
 
 ## 📚 Contents
 
+### HTTP Clients
+- **[HTTPX Guide](httpx/README.md)** - Comprehensive guide to HTTPX internals
+  - [Mental Model](httpx/01_mental_model.md) - Request lifecycle, sockets, connection pools
+  - [Connection Pooling](httpx/02_connection_pooling.md) - Pool limits and configuration
+  - [Timeouts](httpx/03_timeouts.md) - Phase-based timeout configuration
+  - [Advanced Features](httpx/04_advanced.md) - HTTP/2, streaming, error handling
+  - [HTTPX vs aiohttp](httpx/05_httpx_vs_aiohttp.md) - When to choose which
+
 ### Core Concepts
 - **[Decorators](core_concepts/decorators.md)** - Understanding Python decorators and their practical applications
 - **[Exceptions](core_concepts/exceptions.md)** - Exception handling patterns and best practices
@@ -15,16 +23,35 @@ A collection of practical notes and patterns for building backend applications w
 - **[Async Tutorial](concurrency/async_tutorial.md)** - Understanding asyncio, event loops, and async patterns
 
 ### FastAPI
- - **[Dependency Injection](fastapi/dependency_injection.md)** - Practical guide to FastAPI's built-in dependency injection system
-- **[Production Guide: Safe and Scalable LLM & Agent Calls](fastapi/README.md)** - Comprehensive guide for safely calling LLMs and external services from FastAPI
-  - [Part 1: Fundamentals](fastapi/01_fundamentals.md) - Core concepts, mental models, and foundational patterns
-  - [Part 2: Production Implementation](fastapi/02_production_implementation.md) - FastAPI integration and production patterns
-  - [Part 3: Kubernetes & Distributed Systems](fastapi/03_kubernetes_and_distributed_systems.md) - Multi-pod concerns and distributed thinking
-  - [Part 4: Complete Production Architecture](fastapi/04_complete_production_architecture.md) - Full stack from API Gateway to vendor calls
-  - [Part 5: Advanced Topics](fastapi/05_advanced_topics.md) - Pod-aware resilience patterns (circuit breakers, priority queues, adaptive retry)
+- **[Dependency Injection](fastapi/dependency_injection.md)** - Practical guide to FastAPI's built-in dependency injection system
+- **[Safe and Scalable API Calls](fastapi/Safe_and_Scallable_API_calls/README.md)** - Production guide for calling LLMs and external services
+  - [Part 1: Core Concepts](fastapi/Safe_and_Scallable_API_calls/01_core_concepts.md) - Mental models, the real concurrency limit
+  - [Part 2: Concurrency & Timeouts](fastapi/Safe_and_Scallable_API_calls/02_concurrency_and_timeouts.md) - Timeout layers, asyncio vs httpx
+  - [Part 3: Call Patterns](fastapi/Safe_and_Scallable_API_calls/03_call_patterns.md) - Gold standard pattern, retry logic
+  - [Part 4: Kubernetes](fastapi/Safe_and_Scallable_API_calls/04_kubernetes.md) - Multi-pod concerns, local vs global
+  - [Part 5: Production Architecture](fastapi/Safe_and_Scallable_API_calls/05_production_architecture.md) - Complete stack, execution order
+  - [Part 6: Advanced Patterns](fastapi/Safe_and_Scallable_API_calls/06_advanced_patterns.md) - Circuit breakers, priority queues, load shedding
 
 ### Background Tasks
 - **[Background Tasks and Queues](background_tasks/background_tasks_and_queues.md)** - Celery vs FastAPI BackgroundTasks vs AsyncIOScheduler
+
+---
+
+## 📖 Reading Order
+
+### For External API / LLM Calls
+
+1. **Start with HTTPX** — Understand how the HTTP client works
+   - Read [HTTPX Mental Model](httpx/01_mental_model.md)
+   - Read [Connection Pooling](httpx/02_connection_pooling.md)
+   - Read [Timeouts](httpx/03_timeouts.md)
+
+2. **Then Safe API Calls** — Apply the knowledge to production systems
+   - Read [Core Concepts](fastapi/Safe_and_Scallable_API_calls/01_core_concepts.md)
+   - Read [Concurrency & Timeouts](fastapi/Safe_and_Scallable_API_calls/02_concurrency_and_timeouts.md)
+   - Continue through the guide
+
+---
 
 ## 🎯 Focus Areas
 
@@ -46,4 +73,4 @@ These notes are written from a practical engineering perspective, focusing on:
 
 ---
 
-*Last updated: 2025*
+*Last updated: January 2026*
