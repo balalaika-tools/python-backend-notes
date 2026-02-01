@@ -8,7 +8,10 @@ Production-ready patterns and best practices for FastAPI applications.
 
 ### Core Guides
 
-- **[Dependency Injection](dependency_injection.md)** - FastAPI's built-in DI system
+| Part | Topic | Description |
+|------|-------|-------------|
+| [01](01_http_and_parameter_mapping.md) | HTTP & Parameter Mapping | HTTP request structure, FastAPI's parameter resolution rules |
+| [02](02_dependency_injection.md) | Dependency Injection | `Depends` mental model, patterns, testing |
 
 ### External API Calls
 
