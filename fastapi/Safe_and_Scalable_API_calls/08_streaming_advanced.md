@@ -607,13 +607,12 @@ import asyncio
 import json
 import time
 import httpx
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import StreamingResponse
 from aiolimiter import AsyncLimiter
 from typing import AsyncIterator
 
-
-app = FastAPI()
 
 # === GLOBAL STATE ===
 llm_sem = asyncio.Semaphore(100)  # Higher for streaming
@@ -623,13 +622,18 @@ admission = StreamAdmissionController()
 breaker = StreamingCircuitBreaker()
 
 
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     global client
     client = httpx.AsyncClient(
         timeout=httpx.Timeout(connect=5.0, read=60.0, write=10.0, pool=5.0),
         limits=httpx.Limits(max_connections=150, max_keepalive_connections=50),
     )
+    yield
+    await client.aclose()
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 async def production_stream(

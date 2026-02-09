@@ -359,7 +359,7 @@ pool = ThreadPoolExecutor(max_workers=10)
 def crunch_blocking(n):
     total = 0
     for i in range(10**8):
-    total += i
+        total += i
     return total
  
 async def crunch_async(n):

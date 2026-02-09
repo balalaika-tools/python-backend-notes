@@ -12,21 +12,27 @@ Production-ready patterns and best practices for FastAPI applications.
 |------|-------|-------------|
 | [01](01_http_and_parameter_mapping.md) | HTTP & Parameter Mapping | HTTP request structure, FastAPI's parameter resolution rules |
 | [02](02_dependency_injection.md) | Dependency Injection | `Depends` mental model, patterns, testing |
+| [03](03_pydantic.md) | Pydantic | Data validation, serialization, FastAPI integration |
+| [04](04_authentication.md) | Authentication & Security | JWT, OAuth2, CORS, password hashing, security headers |
+| [05](05_middleware.md) | Middleware | Request ID, timing, CORS, error handling, ordering |
+| [06](06_websockets.md) | WebSockets | Connections, rooms, auth, heartbeat, scaling |
+| [07](07_error_handling.md) | Error Responses | Exception hierarchy, global handlers, consistent shapes |
+| [08](08_streaming.md) | Streaming | StreamingResponse, SSE, file downloads, backpressure |
 
 ### External API Calls
 
-- **[Safe and Scalable API Calls](Safe_and_Scallable_API_calls/README.md)** - Production guide for calling LLMs and external services
+- **[Safe and Scalable API Calls](Safe_and_Scalable_API_calls/README.md)** - Production guide for calling LLMs and external services
 
   | Part | Topic | Description |
   |------|-------|-------------|
-  | [01](Safe_and_Scallable_API_calls/01_core_concepts.md) | Core Concepts | Mental model, the real concurrency limit |
-  | [02](Safe_and_Scallable_API_calls/02_concurrency_and_timeouts.md) | Concurrency & Timeouts | Timeout layers, asyncio vs httpx |
-  | [03](Safe_and_Scallable_API_calls/03_call_patterns.md) | Call Patterns | Gold standard pattern, retry logic |
-  | [04](Safe_and_Scallable_API_calls/04_kubernetes.md) | Kubernetes | Multi-pod concerns, local vs global |
-  | [05](Safe_and_Scallable_API_calls/05_production_architecture.md) | Production Architecture | Complete stack, execution order |
-  | [06](Safe_and_Scallable_API_calls/06_advanced_patterns.md) | Advanced Patterns | Circuit breakers, priority queues |
-  | [07](Safe_and_Scallable_API_calls/07_streaming_patterns.md) | Streaming Patterns | SSE, streaming timeouts |
-  | [08](Safe_and_Scallable_API_calls/08_streaming_advanced.md) | Streaming Advanced | Multi-stream, aggregation |
+  | [01](Safe_and_Scalable_API_calls/01_core_concepts.md) | Core Concepts | Mental model, the real concurrency limit |
+  | [02](Safe_and_Scalable_API_calls/02_concurrency_and_timeouts.md) | Concurrency & Timeouts | Timeout layers, asyncio vs httpx |
+  | [03](Safe_and_Scalable_API_calls/03_call_patterns.md) | Call Patterns | Gold standard pattern, retry logic |
+  | [04](Safe_and_Scalable_API_calls/04_kubernetes.md) | Kubernetes | Multi-pod concerns, local vs global |
+  | [05](Safe_and_Scalable_API_calls/05_production_architecture.md) | Production Architecture | Complete stack, execution order |
+  | [06](Safe_and_Scalable_API_calls/06_advanced_patterns.md) | Advanced Patterns | Circuit breakers, priority queues |
+  | [07](Safe_and_Scalable_API_calls/07_streaming_patterns.md) | Streaming Patterns | SSE, streaming timeouts |
+  | [08](Safe_and_Scalable_API_calls/08_streaming_advanced.md) | Streaming Advanced | Multi-stream, aggregation |
 
 ---
 
@@ -91,4 +97,4 @@ Each layer has a non-overlapping responsibility.
 ## Reading Path
 
 1. **First**: [HTTPX Guide](../httpx/README.md) — understand the HTTP client
-2. **Then**: [Safe API Calls](Safe_and_Scallable_API_calls/README.md) — apply to production
+2. **Then**: [Safe API Calls](Safe_and_Scalable_API_calls/README.md) — apply to production

@@ -266,11 +266,10 @@ These must be created **once** at app startup, **not per-request**.
 
 ```python
 import asyncio
+from contextlib import asynccontextmanager
 from aiolimiter import AsyncLimiter
 import httpx
 from fastapi import FastAPI
-
-app = FastAPI()
 
 # GLOBAL primitives — created once
 llm_sem = asyncio.Semaphore(50)
@@ -278,8 +277,8 @@ llm_rate = AsyncLimiter(60, 60)
 client: httpx.AsyncClient | None = None
 
 
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     global client
     client = httpx.AsyncClient(
         limits=httpx.Limits(
@@ -293,11 +292,11 @@ async def startup():
             pool=5.0,
         )
     )
-
-
-@app.on_event("shutdown")
-async def shutdown():
+    yield
     await client.aclose()
+
+
+app = FastAPI(lifespan=lifespan)
 ```
 
 > ⚠️ **Critical**: If these are created per request, they do NOTHING.

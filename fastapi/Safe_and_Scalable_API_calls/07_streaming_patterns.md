@@ -380,13 +380,12 @@ async def stream_llm_safe(payload: dict) -> AsyncIterator[str]:
 import asyncio
 import json
 import httpx
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import StreamingResponse
 from aiolimiter import AsyncLimiter
 from typing import AsyncIterator
 
-
-app = FastAPI()
 
 # === GLOBAL PRIMITIVES ===
 llm_sem = asyncio.Semaphore(50)
@@ -394,8 +393,8 @@ llm_rate = AsyncLimiter(60, 60)
 client: httpx.AsyncClient = None
 
 
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     global client
     client = httpx.AsyncClient(
         timeout=httpx.Timeout(
@@ -409,11 +408,11 @@ async def startup():
             max_keepalive_connections=30,
         ),
     )
-
-
-@app.on_event("shutdown")
-async def shutdown():
+    yield
     await client.aclose()
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 async def generate_sse_stream(
