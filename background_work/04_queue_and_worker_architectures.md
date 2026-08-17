@@ -27,6 +27,8 @@ The queue choice and execution pool choice are separate. Any durable transport c
 
 > **Key insight**: The best queue is not the one with the most features; it is the one whose failure boundary matches the system of record and the team’s recovery procedures.
 
+> **Common misconception**: a broker does not eliminate polling — a consumer still issues a receive call. The difference is who absorbs the cost and how. A database queue pays for a fixed-interval `SELECT` from every worker even when nothing is ready: 100 workers polling once a second is 100 queries/sec at zero load. A managed queue's long poll (e.g. SQS `ReceiveMessage` with `WaitTimeSeconds`) blocks until a message arrives, so the queue absorbs bursts and idle time instead of the primary database.
+
 ---
 
 ## 2. One pending job has three possible durable homes
@@ -52,6 +54,33 @@ job-55 = PENDING      ───────────► job-55 = RUNNING + to
 ```
 
 This removes the database/broker dual write because business state and pending work share one commit. It fits low-to-moderate volume when the domain database is authoritative and the team is willing to operate polling, ready-row indexes, leases, retries, cleanup, and fairness.
+
+In practice this runs as two independent periodic loops around one table — a claim loop inside every worker, and a recovery loop in a separate reconciler:
+
+```text
+                    jobs table
+                        ▲
+           ┌────────────┴────────────┐
+      claim loop                recovery loop
+   (every worker)              (one reconciler)
+           │                          │
+           ▼                          ▼
+poll → claim free slots      find expired RUNNING rows
+  → execute concurrently      → return them to PENDING
+```
+
+A worker's claim loop checks only its own free capacity, not global load:
+
+```text
+loop forever:
+    free_slots = max_concurrency - running_jobs
+    if free_slots > 0:
+        jobs = claim(limit=free_slots)   # the SKIP LOCKED query below
+        start each job concurrently
+    sleep(poll_interval)
+```
+
+`SKIP LOCKED` only holds its row lock for the claim transaction itself — `BEGIN`, select-and-update, `COMMIT`, typically milliseconds — not for the job's full execution time. Ownership across a long-running task is enforced by the lease and attempt token, not by holding a database lock open for tens of seconds.
 
 The comparison note does not own the claim protocol. Use [Leases, Heartbeats, and Fencing](reliability/02_leases_heartbeats_and_fencing.md) for the complete `SKIP LOCKED` claim, heartbeat, token replacement, terminal-write, and recovery SQL. A worker claims only its real free slots; a semaphore around already leased rows merely hides lease hoarding in local memory.
 
@@ -125,7 +154,7 @@ The worker contract therefore requires the following. **The first three cannot b
 - Extend visibility with a heartbeat for variable-duration work.
 - Move poison messages to a DLQ after a deliberate receive count, then provide an inspected redrive procedure.
 - Store large artifacts in object storage and send references. SQS accepts up to **1 MiB** per message (raised from 256 KiB in [August 2025](https://aws.amazon.com/about-aws/whats-new/2025/08/amazon-sqs-max-payload-size-1mib/)); past that you need S3 offload via the extended client library.
-- Autoscale using both queue depth and oldest-message age; depth alone hides starvation.
+- Autoscale using both queue depth (`ApproximateNumberOfMessagesVisible`) and oldest-message age (`ApproximateAgeOfOldestMessage`); depth alone hides starvation.
 
 ⚠️ **The heartbeat has a hard ceiling.** An SQS message's visibility timeout cannot be extended beyond **12 hours from first receipt**, and each extension does not reset that clock. A job that runs longer than 12 hours is redelivered while the original worker is still running it — the same failure shape as the Redis `visibility_timeout` loop above, just with a longer fuse. The escape hatch is structural: split the work into steps that each finish well inside the window, or hand the long-lived coordination to a workflow engine (§5). Source: [SQS visibility timeout](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html), checked 2026-08-03.
 

@@ -32,6 +32,15 @@ That still leaves one danger: A may be partitioned rather than dead and return a
 
 > **The near-miss**: `worker_id` looks like a fencing value. A deployment can reuse the same pod name, process label, or logical worker ID, letting an old process match a later attempt. Keep `worker_id` for logs; generate a fresh token on every claim.
 
+> **Common misconception**: a lease is not a budget for how long the job, or the original HTTP request, is allowed to take. The request may already have returned `202 Accepted` and finished long before the job does; the lease only bounds how long *this attempt* is trusted as owner before another attempt may start. Heartbeats extend that trust window — they do not extend a request timeout.
+
+```text
+Lease         = until when this attempt is trusted as owner
+Heartbeat     = proof of life that extends that trust window
+Lease expiry  = trust withdrawn; another attempt may claim the job
+Attempt token = even if the old attempt returns, it cannot overwrite the new owner
+```
+
 ---
 
 ## 2. Claim only work that can execute now
@@ -181,7 +190,7 @@ Preserve A's external response in logs or a quarantine record; do not overwrite 
 
 A loses its lease while an HTTP request is already inside the provider. B starts after expiry and sends the same business request. Database fencing rejects A's local completion, but it cannot recall either network request.
 
-Use a stable provider idempotency key across `token-a` and `token-b`. The attempt token protects local writes; the operation key protects the business effect. They must not be the same value because their lifetimes differ.
+Use a stable provider idempotency key across `token-a` and `token-b`. The attempt token protects local writes; the operation key protects the business effect. They must not be the same value because their lifetimes differ: the attempt token changes on every claim, while the operation key must survive every retry of the same logical operation. Reusing the attempt token as the idempotency key would make a legitimate retry look like a brand-new business operation to the provider.
 
 ⚠️ A lease shorter than routine provider latency causes healthy work to be recovered and replayed. Heartbeat it or split the task; do not merely increase it beyond the maximum acceptable recovery delay.
 

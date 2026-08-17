@@ -1,3 +1,5 @@
+up
+
 # Python Typing
 
 > **Who this is for**: Python developers who can read basic annotations and want
@@ -200,6 +202,7 @@ async def shutdown(resource: SupportsClose) -> None:
 An `httpx.AsyncClient` has `.aclose()`, so it satisfies `SupportsClose` even though it doesn't inherit anything special. This is the idiomatic Python alternative to ABC-based interfaces.
 
 Use Protocol when:
+
 - You want to accept multiple unrelated third-party types that share a shape.
 - You're writing a library and don't want to force inheritance on users.
 - You're mocking in tests and want the mock to type-check without faking a full class.
@@ -334,15 +337,15 @@ class Service:
 
 ## 12. Where This Plays with Pydantic and FastAPI
 
-| Construct | FastAPI behavior |
-|-----------|------------------|
-| `x: int` | Required query/body param (depending on where it appears) |
-| `x: int = 0` | Optional, defaults to 0 |
-| `x: Optional[int] = None` | Optional, nullable |
-| `x: Literal["a", "b"]` | Validated enum; shows in OpenAPI as enum |
-| `x: list[Item]` | Expects a JSON array of items |
-| `x: dict[str, int]` | Expects an object with string keys and int values |
-| `status: Annotated[str, Field(pattern="^...$")]` | Validated string |
+| Construct                                          | FastAPI behavior                                          |
+| -------------------------------------------------- | --------------------------------------------------------- |
+| `x: int`                                         | Required query/body param (depending on where it appears) |
+| `x: int = 0`                                     | Optional, defaults to 0                                   |
+| `x: Optional[int] = None`                        | Optional, nullable                                        |
+| `x: Literal["a", "b"]`                           | Validated enum; shows in OpenAPI as enum                  |
+| `x: list[Item]`                                  | Expects a JSON array of items                             |
+| `x: dict[str, int]`                              | Expects an object with string keys and int values         |
+| `status: Annotated[str, Field(pattern="^...$")]` | Validated string                                          |
 
 FastAPI uses annotations at route-registration time to build validation rules,
 OpenAPI, and parameter behavior. A broad annotation such as `Any` gives it very
