@@ -74,7 +74,9 @@ Validate the handshake's `Origin` against an exact allowlist:
 
 Parse origins as origins; do not use substring or suffix checks. Define a separate policy for non-browser clients, because they can set or omit `Origin` themselves.
 
-CORS response headers do not protect WebSocket handshakes in the same way they govern Fetch/XHR. Enforce origin policy in WebSocket handling and at a compatible trusted edge.
+**Cross-Origin Resource Sharing (CORS)** response headers do not protect WebSocket handshakes in the
+same way they govern Fetch or **XMLHttpRequest (XHR)** browser calls. Enforce origin policy in
+WebSocket handling and at a compatible trusted edge.
 
 Origin proves browser page origin, not user identity. Non-browser attackers can forge it.
 
@@ -106,7 +108,8 @@ If authorization may change during a long connection, choose one:
 - Short connection/credential lifetime and forced reauthentication
 - Revocation events that disconnect affected sessions
 - Re-evaluation on each sensitive action
-- A policy cache with bounded TTL and invalidation
+- A policy cache with a bounded **time to live (TTL)**—the maximum age before the authorization
+  decision is evaluated again—and invalidation
 
 Document the maximum revocation delay.
 

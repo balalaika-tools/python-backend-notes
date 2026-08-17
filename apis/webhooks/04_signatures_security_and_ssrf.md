@@ -18,13 +18,17 @@ consumer protects inbound endpoint         producer protects outbound network
        signatures/replay defense                  SSRF/egress controls
 ```
 
+**Server-side request forgery (SSRF)** occurs when an attacker-controlled callback URL makes the
+producer request an otherwise unreachable internal, link-local, or metadata service.
+
 TLS is required on both sides, but it does not replace message authentication: anyone can send HTTPS to a public consumer endpoint, and a compromised/misissued destination is not necessarily the expected producer.
 
 ---
 
 ## 2. Sign Identity, Time, and Exact Body
 
-A robust HMAC input binds:
+A robust **hash-based message authentication code (HMAC)** proves possession of a shared secret and
+detects modification of the exact bytes. Its input binds:
 
 ```text
 message_id.timestamp.raw_body
@@ -189,7 +193,9 @@ Do not log the secret, full signature header, or sensitive raw body on failure.
 
 HMAC means producer and consumer share a secret. Asymmetric signatures can reduce provider-side verification-key distribution risk: producer signs with a private key and consumers verify with public keys. They add key discovery, rotation, algorithm, and library complexity. Use a reviewed scheme rather than inventing one.
 
-IP allowlists and mutual TLS can add defense in depth but do not replace payload signatures and event deduplication. Provider IP ranges change, proxies hide source addresses, and mTLS still needs event identity/replay semantics.
+IP allowlists and **mutual TLS (mTLS)**—certificate authentication of both client and server—can add
+defense in depth but do not replace payload signatures and event deduplication. Provider IP ranges
+change, proxies hide source addresses, and mTLS still needs event identity/replay semantics.
 
 ---
 
@@ -203,7 +209,8 @@ producer worker sends request from trusted network
 attacker learns response timing/status or triggers internal action
 ```
 
-Other targets include loopback, RFC1918/private networks, IPv6 local addresses, internal DNS, Kubernetes services, admin panels, and cloud metadata services.
+Other targets include loopback, **RFC 1918 private IPv4 address space**, IPv6 local addresses,
+internal DNS, Kubernetes services, admin panels, and cloud metadata services.
 
 ### Registration validation is not enough
 
@@ -236,7 +243,8 @@ Disable redirects by default. If supported, cap hops and repeat the full scheme/
 
 - Run delivery workers in an egress-isolated network with no route to internal control planes or metadata services.
 - Enforce destination policy at an egress proxy/firewall as well as application code.
-- Use cloud metadata protections such as IMDSv2 as defense in depth.
+- Use cloud metadata protections such as **AWS Instance Metadata Service Version 2 (IMDSv2)**,
+  whose session token adds a request barrier, as defense in depth.
 - Limit response bytes, timeouts, concurrency, and bandwidth.
 
 Application URL validation alone is bypass-prone. The network must make forbidden destinations unreachable.

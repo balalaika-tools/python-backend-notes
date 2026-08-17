@@ -101,7 +101,9 @@ Costs:
 
 ## 4. Opaque Signed Cursor
 
-A cursor can reveal its fields without allowing clients to modify them. Signing provides integrity, not confidentiality.
+A cursor can reveal its fields without allowing clients to modify them. A hash-based message
+authentication code (HMAC) is a keyed digest that detects cursor modification. Signing provides
+integrity, not confidentiality.
 
 ```python
 import base64
@@ -202,7 +204,9 @@ Never interpolate filter, sort, or field-selection strings into SQL. Map public 
 GET /orders?sort=-created_at,id
 ```
 
-Use a deterministic final tie-breaker, normally the unique ID. Decide how nulls sort and which collation applies to text. Do not promise a database's accidental row order.
+Use a deterministic final tie-breaker, normally the unique ID. Decide how nulls sort and which
+**collation**—the database's text comparison and ordering rules—applies. Do not promise a database's
+accidental row order.
 
 Sort fields are a cost surface. Each supported ordering may require an index combined with common tenant and filter predicates. An API that accepts any field can expose slow scans and data-dependent denial of service.
 

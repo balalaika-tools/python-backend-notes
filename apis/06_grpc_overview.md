@@ -6,6 +6,40 @@
 
 ---
 
+## Run one generated unary call
+
+The [quick-start files](examples/grpc_quickstart/) contain one `.proto` contract, asynchronous
+Python server, and generated-stub client. From that directory, generate the bindings and run them:
+
+```bash
+python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. orders.proto
+python server.py
+```
+
+In a second terminal:
+
+```bash
+python client.py
+```
+
+The first terminal prints `server ready on 127.0.0.1:50051`; the client prints:
+
+```text
+order ord_42: shipped
+```
+
+The `.proto` file is the input, `grpc_tools.protoc` produces `orders_pb2.py` and
+`orders_pb2_grpc.py`, server registration binds the generated service interface, and the client
+stub serializes `GetOrderRequest` over the channel. Missing generated modules fail at import;
+starting the client before the server produces an unavailable-channel error instead of the result.
+
+> **Production:** The example is deliberately restricted to loopback and uses plaintext only for
+> that local proof. A deployed channel requires verified TLS or mutual TLS, application
+> authorization, bounded message sizes, health/readiness behavior, and deadline propagation as
+> described below.
+
+---
+
 ## 1️⃣ The Mental Model
 
 **gRPC** makes a remote operation look like a typed method call while retaining distributed-system controls such as deadlines, cancellation, metadata, and status codes.
@@ -108,7 +142,8 @@ Automatic retry requires an explicit service policy and safe operation semantics
 
 Safe Protobuf evolution commonly includes adding a new field. Old readers preserve or ignore unknown fields depending on the operation and runtime; new readers see a default/unset value from old writers.
 
-Do not:
+**ProtoJSON** is Protocol Buffers' specified JSON mapping; its compatibility rules differ from the
+binary wire format. Do not:
 
 - Change existing field numbers.
 - Reuse a removed number.
@@ -143,7 +178,8 @@ Account for:
 - Connection age, keepalive, graceful drain, and load balancing behavior
 - Deadlines propagated with enough remaining budget for downstream work
 - Retry budgets and idempotent operations
-- Reflection exposure policy and separate health/readiness behavior
+- **Server reflection**—runtime discovery of service and schema descriptors—exposure policy, plus
+  separate health/readiness behavior
 
 Browsers cannot use the ordinary native gRPC stack directly in the same way as backend clients. **gRPC-Web** and a compatible proxy or server bridge expose supported gRPC services to browser applications, with transport and streaming capabilities that must be checked for the chosen implementation.
 

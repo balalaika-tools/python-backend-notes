@@ -48,7 +48,7 @@ Validate every published example against its schema and run old fixtures through
 - Attempts/age exhaustion reaches dead letter once.
 - Replay keeps event identity and current security checks.
 
-### SSRF
+### Server-side request forgery (SSRF)
 
 - All special/private IPv4 and IPv6 classes are blocked.
 - Public DNS changing to private address is blocked on the next connection.
@@ -139,7 +139,7 @@ An HTTP `2xx` dashboard alone can be green while the inbox worker is broken.
 
 ---
 
-## 7. SLOs and Retention
+## 7. Service-level objectives (SLOs) and Retention
 
 Producer SLO examples:
 

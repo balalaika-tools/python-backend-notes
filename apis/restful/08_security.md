@@ -72,6 +72,10 @@ Authorization belongs close to the resource query and transition, not only in ro
 
 ## 3. Object-Level Authorization (BOLA/IDOR)
 
+**Broken Object Level Authorization (BOLA)**, often expressed as an **Insecure Direct Object
+Reference (IDOR)**, occurs when a caller substitutes an object identifier and the server retrieves
+or mutates it without checking that caller's relationship to the object.
+
 The vulnerable shape authenticates a user then fetches any supplied ID:
 
 ```python
@@ -93,6 +97,11 @@ async def load_visible_order(session, order_id: str, principal: Principal):
     )
     return await session.scalar(statement)
 ```
+
+For example, an authenticated tenant-7 user can replace their order ID with tenant-8's `order_id`.
+The unscoped lookup returns tenant 8's row and discloses or mutates it. Adding the tenant predicate
+derived from the trusted principal—not from the submitted path or body—makes that substitution
+return no visible row.
 
 Apply this to members, nested resources, bulk items, file keys, job results, webhook subscriptions, exports, and indirect references in bodies. A globally unique or unguessable ID is not authorization.
 
@@ -164,7 +173,7 @@ Avoid generic “apply every JSON field to the model” utilities. Define writab
 - Allow only required methods and headers.
 - Include `Vary: Origin` when the response varies by origin and can be cached.
 
-**CSRF** matters when browsers automatically attach ambient credentials such as cookies. Protect state-changing requests with appropriate `SameSite` cookies, CSRF tokens, and/or strict origin checks. A bearer token explicitly added by application code has a different threat model, but token theft through XSS remains critical.
+**CSRF** matters when browsers automatically attach ambient credentials such as cookies. Protect state-changing requests with appropriate `SameSite` cookies, CSRF tokens, and/or strict origin checks. A bearer token explicitly added by application code has a different threat model, but token theft through **cross-site scripting (XSS)**—attacker-injected browser script that can steal or misuse explicitly managed credentials—remains critical.
 
 Do not perform unsafe actions with `GET`; browser navigation and prefetch can trigger them.
 
@@ -195,7 +204,9 @@ Return `429` with stable error details and retry guidance where appropriate. Nev
 - Bind SQL values and allowlist public sort/filter fields.
 - Avoid shell commands; if unavoidable, pass fixed argument arrays without a shell.
 - Validate redirects and outbound URLs against an explicit policy.
-- Treat URL-fetch, import, image proxy, and webhook target features as SSRF surfaces.
+- Treat URL-fetch, import, image proxy, and webhook target features as **server-side request forgery
+  (SSRF)** surfaces: attacker-controlled destinations can make the server reach private, link-local,
+  or metadata services unavailable to the attacker directly.
 - Resolve and validate all IP addresses, block private/link-local/loopback/metadata ranges, control redirects, and isolate egress.
 - Stream uploads with byte limits; verify type from content, generate storage keys, scan where required, and serve from a non-executable origin.
 - Set outbound timeouts, response limits, TLS verification, and schema validation for third-party APIs.

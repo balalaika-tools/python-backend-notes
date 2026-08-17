@@ -115,7 +115,8 @@ Production controls commonly include:
 - Per-principal rate and cost quotas
 - Batching to prevent N+1 access
 - Persisted or allowlisted operations for controlled clients
-- Introspection policy appropriate to the exposure model
+- Schema introspection policy appropriate to the exposure model; introspection lets clients query
+  the schema's available types and fields
 - Redacted errors that keep stable machine-readable extensions
 
 Disabling introspection is not an authorization control. Attackers can infer fields through other means; every resolver must still reject unauthorized access.

@@ -65,7 +65,7 @@ Do not put authorization decisions or trusted user/tenant identity in client-con
 | Query | Client → server | `document.snapshot.get` | One reply; consider HTTP if ordinary request-response |
 | Subscribe | Client → server | `order.subscribe` | Subscription confirmation/error |
 | Event | Server → client | `order.status_changed` | Optional delivery/application acknowledgement |
-| Ack | Either | `event.ack` | Usually none |
+| Application acknowledgement (Ack) | Either | `event.ack` | Confirms a defined receipt or processing milestone; distinct from protocol ping/pong and socket delivery |
 | Protocol message | Either | `app.ping`, `app.pong` | Defined by application, distinct from RFC ping/pong |
 | Error | Server → client | `error` | Correlated if caused by a request |
 
@@ -197,7 +197,9 @@ For each message type document:
 - Error codes and retry behavior
 - Added/deprecated versions
 
-AsyncAPI can describe channels and messages, but application state machines and recovery rules still need explicit prose and tests.
+**AsyncAPI**, a machine-readable description format for asynchronous channels and messages, can
+describe those contracts, but application state machines and recovery rules still need explicit
+prose and tests.
 
 ---
 

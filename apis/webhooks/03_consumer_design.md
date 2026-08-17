@@ -39,7 +39,9 @@ changed:  {"currency": "EUR", "amount": 4200}
 
 Both JSON objects have equivalent data but different bytes and signatures. Read the body once, cap it, verify it, then parse those same bytes. Framework body parsers or middleware that reserializes JSON before verification will break valid signatures.
 
-Use the provider's official verification library where available. The next chapter provides a complete HMAC example and rotation rules.
+Use the provider's official verification library where available. The next chapter provides a
+complete **hash-based message authentication code (HMAC)** example that authenticates the exact
+request bytes, plus rotation rules.
 
 ---
 

@@ -121,7 +121,9 @@ Test the actual CDN/gateway configuration, not only origin headers.
 
 Never claim strong read-after-write consistency through a cache unless invalidation and all relevant replicas provide it. A write response can return the new representation directly so the writer does not immediately depend on a stale shared read.
 
-> **Principle**: Cache invalidation is a distributed state transition. It needs identity, ordering, observability, and a fallback TTL.
+> **Principle**: Cache invalidation is a distributed state transition. It needs identity, ordering,
+> observability, and a fallback time to live (TTL)—the expiry after which cached state is no longer
+> reused.
 
 ---
 

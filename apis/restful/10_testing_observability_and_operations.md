@@ -198,7 +198,8 @@ Useful runbook data:
 - Negative, authorization, concurrency, and compatibility tests exist.
 - Load test includes realistic dependency and database behavior.
 - Metrics use bounded dimensions and trace the full critical path.
-- SLO, dashboards, alerts, owner, and runbook are published.
+- A service-level objective (SLO)—the reliability target evaluated from measured service-level
+  indicators—plus dashboards, alerts, owner, and runbook is published.
 - Deployment drains safely and rollback is data-compatible.
 - Unknown write outcomes can be queried or reconciled.
 - Logs and traces are useful without leaking sensitive content.

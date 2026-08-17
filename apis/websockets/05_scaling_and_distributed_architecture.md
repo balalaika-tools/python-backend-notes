@@ -52,7 +52,7 @@ Do not use one mechanism for every message without considering semantics:
 |---------|------------------|
 | Payment/order state transition | Durable outbox + event log/stream |
 | Chat message requiring history | Durable message store/log |
-| Presence heartbeat | TTL/lease store or ephemeral pub/sub |
+| Presence heartbeat | Time-to-live (TTL) lease store or ephemeral pub/sub; expiry removes stale ownership after a process disappears |
 | Cursor movement/typing indicator | Best-effort pub/sub, coalescing allowed |
 
 Redis Pub/Sub is low latency but does not retain missed messages. Redis Streams, Kafka, or a database event log provide different durability/replay and operational trade-offs.

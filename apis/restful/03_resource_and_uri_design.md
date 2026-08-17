@@ -66,6 +66,10 @@ GET  /memberships/{membership_id}      relationship as first-class resource
 
 Use nesting when the child is naturally scoped by the parent or the parent is required for authorization. Avoid deep chains:
 
+Deep paths repeat authorization context at several levels, couple a child's stable address to every
+ancestor identifier, and make an independently addressable item harder to link or move. Prefer the
+shortest path that preserves the ownership relationship needed for the operation.
+
 ```text
 ❌ /orgs/{o}/teams/{t}/projects/{p}/tickets/{ticket}/comments/{comment}
 ✅ /tickets/{ticket}/comments

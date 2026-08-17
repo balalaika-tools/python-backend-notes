@@ -13,9 +13,9 @@ REST, SOAP, GraphQL, gRPC, WebSocket, and webhooks solve overlapping but differe
 | Choice | What it is | Normal interaction | Strongest fit |
 |--------|------------|--------------------|---------------|
 | REST | Architectural style commonly realized with HTTP | Request-response | Resource-oriented public and internal APIs |
-| SOAP | XML messaging protocol with a large standards ecosystem | Request-response or messaging | Existing enterprise contracts and WS-* requirements |
+| SOAP | XML messaging protocol with a large standards ecosystem | Request-response or messaging | Existing Web Services Description Language (WSDL) contracts and WS-* Web Services standards |
 | GraphQL | Typed query language and execution model | Request-response; subscriptions possible | Client-selected data across a connected domain graph |
-| gRPC | RPC framework commonly using Protobuf and HTTP/2 | Unary and streaming RPCs | Typed service-to-service calls in controlled environments |
+| gRPC | RPC framework commonly using Protocol Buffers (Protobuf), a schema language and compact binary message format, over HTTP/2 | Unary and streaming RPCs | Typed service-to-service calls in controlled environments |
 | WebSocket | Persistent, full-duplex message protocol | Bidirectional messages | Frequent low-latency updates in both directions |
 | Webhook | Provider-to-consumer HTTP callback pattern | Asynchronous event notification | Cross-organization event delivery without persistent connections |
 
@@ -33,7 +33,7 @@ The choices can coexist. A product might expose REST publicly, use gRPC internal
 | Frequent two-way interactive messages | WebSocket | One persistent duplex channel | Can you own reconnection, message contracts, backpressure, and fleet state? |
 | Notify another system after an event | Webhook | Receiver needs only an HTTPS endpoint | Can both sides handle duplicates, delay, signatures, retries, and replay? |
 | Formal XML contracts, intermediaries, or required WS-Security features | SOAP | Mature standards and enterprise tooling | Is this a real constraint or only organizational habit? |
-| Infrequent one-way browser updates | SSE or polling | Simpler than a duplex socket | Does the client ever need to send on the same channel? |
+| Infrequent one-way browser updates | Server-Sent Events (SSE), a one-way HTTP event stream, or polling | Simpler than a duplex socket | Does the client ever need to send on the same channel? |
 
 > **Rule**: Choose the simplest mechanism that satisfies the interaction. Persistent connections and flexible query engines have real operational cost.
 
@@ -43,17 +43,29 @@ The choices can coexist. A product might expose REST publicly, use gRPC internal
 
 ### RESTful HTTP
 
+REST fits a resource-oriented boundary whose consumers already understand HTTP. That earns broad
+tooling and cache support; poor resource modeling instead produces inconsistent RPC-shaped URLs.
+
 ✅ Human-readable, broadly supported, gateway-friendly, and able to use standardized caching and conditional requests.
 
 ⚠️ A poorly modeled REST API becomes inconsistent RPC disguised as URLs. Multiple round trips or fixed representations can be awkward for complex UI aggregation.
 
 ### SOAP
 
+SOAP earns its weight when an integration must honor formal XML contracts, intermediaries, or a
+specific enterprise Web Services profile. Without that requirement, its standards and tooling add
+complexity without a matching interoperability benefit.
+
 ✅ Precise XML contracts, formal faults, extensible headers, and established standards for some enterprise requirements.
 
 ⚠️ Verbose messages, complex tooling, and WS-* profiles add weight. Starting a greenfield SOAP API without a concrete interoperability requirement is rarely the simplest choice.
 
 ### GraphQL
+
+GraphQL fits when clients genuinely need different projections of connected data. That flexibility
+moves query cost, field authorization, and data-loader behavior into the server's execution layer.
+**Schema introspection** lets a client query which types and fields the schema exposes, powering
+strong tooling but not replacing authorization.
 
 ✅ One typed graph lets consumers request the exact connected shape they need. Schema introspection and client tooling are strong.
 
@@ -66,17 +78,28 @@ GraphQL execution layer. Client-selected fields do not make expensive joins free
 
 ### gRPC
 
+gRPC fits controlled service boundaries where teams can distribute generated clients and operate
+HTTP/2. Its efficient wire format and typed stubs come with a schema-release and specialized-tooling
+workflow.
+
 ✅ Code generation, compact binary payloads, four RPC streaming modes, deadlines, metadata, and standardized status codes work well for service calls.
 
 ⚠️ Binary debugging and browser support require different tooling. Generated clients and strict schema discipline are part of the workflow.
 
 ### WebSocket
 
+WebSocket fits sustained bidirectional interaction. A long-lived channel avoids repeated request
+setup, but the application must now own reconnect, replay, flow control, and fleet connection state.
+
 ✅ Low-overhead, full-duplex delivery after connection establishment.
 
 ⚠️ The protocol supplies a channel, not event schemas, acknowledgements, resumption, authorization rules, or backpressure policy. Long-lived connections also change deployment and capacity planning.
 
 ### Webhooks
+
+Webhooks fit cross-organization notification because the producer can call an ordinary HTTPS
+endpoint without maintaining a connection. Receiver outages and ambiguous network outcomes make
+durable retries, signatures, and consumer idempotency part of the design.
 
 ✅ Cross-system push without polling or a permanent connection.
 

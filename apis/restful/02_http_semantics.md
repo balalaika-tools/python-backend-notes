@@ -39,6 +39,9 @@ method + target + fields + optional content + response status
           └── encoded as HTTP/3 frames over QUIC
 ```
 
+**QUIC** is HTTP/3's secure, multiplexed transport over UDP; it changes connection and stream
+behavior without changing the application-level HTTP method and status semantics.
+
 Application code should not assume that one request maps to one connection or that header names retain a particular casing. Proxies and clients parse and reconstruct messages.
 
 ---

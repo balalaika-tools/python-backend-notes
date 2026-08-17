@@ -8,7 +8,9 @@
 
 ## 1️⃣ REST Is a Set of Constraints
 
-**Representational State Transfer (REST)** is an architectural style for networked hypermedia systems. It is not a wire protocol, schema language, or synonym for “HTTP plus JSON.”
+**Representational State Transfer (REST)** is an architectural style for networked hypermedia
+systems, where representations contain links or controls that identify available next actions. It
+is not a wire protocol, schema language, or synonym for “HTTP plus JSON.”
 
 REST combines constraints because of the properties they create:
 

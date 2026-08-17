@@ -40,7 +40,9 @@ Subscription API controls:
 
 - Authenticate and authorize owner/administrator.
 - Allow only known event types and minimum required events.
-- Validate URL syntax and run the SSRF policy in [Signatures, Security, and SSRF](04_signatures_security_and_ssrf.md).
+- Validate URL syntax and run the **server-side request forgery (SSRF)** policy: a customer-controlled
+  callback URL must not let the worker reach internal or cloud-metadata services. See
+  [Signatures, Security, and SSRF](04_signatures_security_and_ssrf.md).
 - Verify endpoint ownership with a challenge or first signed test event where appropriate.
 - Return the signing secret once, then store it encrypted or in a secret manager.
 - Audit endpoint, event selection, key rotation, pause, and deletion changes.

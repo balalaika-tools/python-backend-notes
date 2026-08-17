@@ -48,8 +48,8 @@ If a consumer must learn a rule from an incident or provider source code, the co
 | SOAP | WSDL plus XML Schema | Operations, messages, XML types, bindings, service locations |
 | GraphQL | GraphQL schema definition language | Types, fields, arguments, operations, nullability, directives |
 | gRPC | Protocol Buffer `.proto` files | Services, RPC methods, messages, field numbers, streaming shape |
-| WebSocket | AsyncAPI or a documented message schema | Channels, message envelopes, directions, correlation |
-| Webhook | Event catalog plus JSON Schema/OpenAPI/AsyncAPI | Event types, envelope, payload versions, delivery headers |
+| WebSocket | AsyncAPI—a machine-readable contract format for asynchronous channels and messages—or a documented message schema | Channels, message envelopes, directions, correlation |
+| Webhook | Event catalog plus JSON Schema, OpenAPI, or AsyncAPI | Event types, envelope, payload versions, delivery headers |
 
 Machine-readable artifacts enable generation and checks, but descriptions still need units, invariants, authorization, examples, and operational behavior.
 

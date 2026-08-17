@@ -103,7 +103,10 @@ CONNECTING → OPEN → CLOSING → CLOSED
 
 At `OPEN`, both peers can send. At `CLOSING`, no new application work should be admitted. At `CLOSED`, the application releases connection registries, subscriptions, queues, and presence leases.
 
-A connection can disappear without a close frame because a device sleeps, NAT mapping expires, process crashes, cable disconnects, or proxy times out. Cleanup must run on both graceful and exceptional exits, and presence cannot depend on a perfect disconnect signal.
+A connection can disappear without a close frame because a device sleeps, a **network address
+translation (NAT)** mapping expires, a process crashes, a cable disconnects, or a proxy times out.
+Cleanup must run on both graceful and exceptional exits, and presence cannot depend on a perfect
+disconnect signal.
 
 ---
 
@@ -150,7 +153,7 @@ Extensions can alter protocol operation. Compression such as per-message deflate
 | One-way browser event feed | SSE | Automatic reconnection/event IDs; ordinary HTTP response |
 | Streaming download/model output | Streaming HTTP/SSE | No client-to-server message channel required |
 | Frequent two-way messages | WebSocket | Persistent full-duplex channel |
-| Peer-to-peer media/data | WebRTC | Media, NAT traversal, and peer connectivity capabilities |
+| Peer-to-peer media/data | Web Real-Time Communication (WebRTC) | Browser/platform support for peer media, data, NAT traversal, and connectivity |
 
 Do not send large file uploads over WebSocket unless the application truly needs one multiplexed channel and owns chunking, resume, integrity, quotas, and storage flow control. Direct HTTP/object-storage upload is usually better.
 
@@ -166,4 +169,3 @@ Do not send large file uploads over WebSocket unless the application truly needs
 ---
 
 **Next**: [Message Protocols and Contracts](02_message_protocols_and_contracts.md)
-
