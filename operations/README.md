@@ -2,10 +2,10 @@
 
 > Testing and deployment patterns for Python backend applications.
 
-[![pytest](https://img.shields.io/badge/pytest-8.x-0A9EDC.svg?logo=pytest&logoColor=white)](https://pytest.org)
+[![pytest](https://img.shields.io/badge/pytest-9.x-0A9EDC.svg?logo=pytest&logoColor=white)](https://pytest.org)
 [![Docker](https://img.shields.io/badge/Docker-latest-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com)
 [![Uvicorn](https://img.shields.io/badge/Uvicorn-0.30+-499848.svg)](https://www.uvicorn.org)
-[![Gunicorn](https://img.shields.io/badge/Gunicorn-22.x-499848.svg)](https://gunicorn.org)
+[![Gunicorn](https://img.shields.io/badge/Gunicorn-26.x-499848.svg)](https://gunicorn.org)
 
 ---
 

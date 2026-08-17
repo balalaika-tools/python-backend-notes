@@ -1,5 +1,11 @@
 # Cognito Tokens — Deep Dive
 
+> **Who this is for**: API engineers deciding which Cognito token kind an endpoint should accept and
+> how to validate it.
+
+> **Key insight**: Token shape does not establish intended use; the verifier must bind token type and
+> audience to the endpoint.
+
 > JWT structure, JWKS, and generic validation are covered in [auth/jwt.md](../jwt.md). This file covers what's Cognito-specific: the three token types, their claims, Cognito validation code, and revocation.
 
 ---
@@ -249,16 +255,23 @@ JWKS_URL = f'https://cognito-idp.{REGION}.amazonaws.com/{POOL_ID}/.well-known/jw
 
 jwks_client = jwt.PyJWKClient(JWKS_URL)
 
-def validate_token_pyjwt(token: str) -> dict:
+def validate_access_token_pyjwt(token: str) -> dict:
     signing_key = jwks_client.get_signing_key_from_jwt(token)
-    return jwt.decode(
+    claims = jwt.decode(
         token,
         signing_key.key,
         algorithms=['RS256'],
-        audience=CLIENT_ID,         # only for id tokens; omit for access tokens
-        options={"verify_aud": False},  # set True for id tokens
+        issuer=f'https://cognito-idp.{REGION}.amazonaws.com/{POOL_ID}',
+        audience=RESOURCE_SERVER_AUDIENCE,
     )
+    if claims.get('token_use') != 'access':
+        raise jwt.InvalidTokenError('expected a Cognito access token')
+    return claims
 ```
+
+For an ID token, use a separate `validate_id_token_pyjwt()` function whose audience is
+`CLIENT_ID` and whose required `token_use` is `id`. Keeping the functions separate prevents a
+token minted for browser identity from silently crossing into an API authorization boundary.
 
 ---
 

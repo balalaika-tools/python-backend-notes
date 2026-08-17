@@ -1,5 +1,11 @@
 # OAuth & JWT with Cognito — Practical Guide
 
+> **Who this is for**: Backend engineers integrating Cognito token issuance with an API resource
+> server.
+
+> **Key insight**: The issuer creates tokens, but each resource server still owns audience and scope
+> enforcement.
+
 > Theory is in [auth/jwt.md](../jwt.md) and [auth/oauth2.md](../oauth2.md). This guide shows how to apply those concepts specifically with AWS Cognito — boto3 setup, token flow, real code.
 
 ---
@@ -381,7 +387,7 @@ def get_valid_access_token(
     return resp["AuthenticationResult"]["AccessToken"]
 ```
 
-> **By default, Cognito does not rotate refresh tokens** — the same refresh token keeps working until it expires (30 days by default) or is explicitly revoked. Since April 2025, refresh token rotation is an opt-in feature: enable it on the app client (`RefreshTokenRotation={'Feature': 'ENABLED'}`, Essentials/Plus tiers), and each refresh call returns a *new* refresh token while invalidating the old one (with a short grace period, up to 60s, for client retries). Rotation requires refreshing via `GetTokensFromRefreshToken` / the `/oauth2/token` endpoint rather than `REFRESH_TOKEN_AUTH`. Other IdPs rotate by default — the security tradeoff is discussed in [oauth2.md](../oauth2.md).
+> **By default, Cognito does not rotate refresh tokens** — the same refresh token keeps working until it expires (30 days by default) or is explicitly revoked. Refresh token rotation is an opt-in app-client setting (`RefreshTokenRotation={'Feature': 'ENABLED'}`); each refresh call returns a *new* refresh token while invalidating the old one, with an optional grace period up to 60 seconds for client retries. Rotation requires `GetTokensFromRefreshToken` or the `/oauth2/token` endpoint rather than `REFRESH_TOKEN_AUTH`. Confirm current plan features in AWS documentation instead of assuming a Lite/Essentials/Plus gate that the app-client setting does not document.
 
 ---
 

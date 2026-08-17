@@ -2,6 +2,9 @@
 
 > **Who this is for**: API owners evolving HTTP contracts across independently deployed consumers. Assumes [API Contracts and Lifecycle](../03_api_contracts_and_lifecycle.md).
 
+> **Key insight**: Wire-compatible schema evolution can still break behavior, rollback, or clients
+> that exhaustively interpret the old contract.
+
 ---
 
 ## 1. Prefer Evolution Over Proliferation
@@ -107,7 +110,8 @@ components:
   schemas:
     Order:
       type: object
-      additionalProperties: false
+      # Response objects remain open so additive fields stay compatible with
+      # tolerant old clients. Request schemas may close unknown input instead.
       required: [id, status, amount_minor, currency]
       properties:
         id: {type: string}
@@ -204,4 +208,3 @@ Backward-compatible reads are insufficient if new writes produce state the old p
 ---
 
 **Next**: [Testing, Observability, and Operations](10_testing_observability_and_operations.md)
-

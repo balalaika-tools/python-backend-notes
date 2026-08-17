@@ -2,6 +2,9 @@
 
 > **Who this is for**: API designers defining payloads that remain precise across languages and failure paths. Assumes [Resource and URI Design](03_resource_and_uri_design.md).
 
+> **Key insight**: Status codes classify interoperability, while stable problem identifiers drive
+> application decisions.
+
 ---
 
 ## 1. Representations Are Public Types
@@ -201,7 +204,11 @@ async def validation_problem(
     )
 ```
 
-In a real service, normalize domain exceptions in one place and log the full internal error with the same request ID. The public response and internal evidence serve different audiences.
+In a real service, normalize domain exceptions in one place and emit structured, access-controlled
+exception telemetry with the same request ID. Redact credentials, tokens, request bodies, SQL
+values, and raw dependency payloads; "internal" logging is not permission to copy every exception
+field into a long-lived system. The stable public response and restricted diagnostic evidence
+serve different audiences.
 
 ---
 
@@ -255,4 +262,3 @@ Document whether the top-level HTTP status represents transport/batch acceptance
 ---
 
 **Next**: [Pagination, Filtering, and Search](05_pagination_filtering_and_search.md)
-

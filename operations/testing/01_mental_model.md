@@ -1,6 +1,9 @@
 # 01 — The Testing Mental Model
 
-> **Purpose**: Before any pytest fixtures or `TestClient` code, establish *what* to test, *why*, and *at which level*. Every later file assumes this vocabulary.
+> **Who this is for**: Backend engineers deciding what failure a test should observe and at which
+> system boundary.
+
+> **Key insight**: Choose the lowest test layer that can observe the failure being protected against.
 
 ---
 
@@ -60,7 +63,10 @@ For FastAPI backends:
 - **Integration tests** — endpoints with test DB and dependency overrides. See [04 — Endpoint Testing](04_endpoint_testing.md).
 - **E2E tests** — full stack with external services (usually in CI only, nightly).
 
-> **Rule of thumb**: If a test needs network access or takes > 1 second, it's integration, not unit.
+Classify a test by the real boundary it exercises. A test of one component with its collaborators
+replaced is a unit test even if it is slow; a test that composes the API, database adapter, and
+transaction behavior is an integration test even if it finishes in 50 ms. Network access and
+runtime are common consequences of broader boundaries, not the definition.
 
 ---
 

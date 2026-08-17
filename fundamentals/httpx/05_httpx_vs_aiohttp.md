@@ -1,6 +1,12 @@
 # HTTPX vs aiohttp
 
+> **Who this is for**: Python engineers choosing an async HTTP client from concrete lifecycle,
+> protocol, and streaming requirements.
+
 > **Core difference**: aiohttp is lower-level and more flexible. HTTPX is higher-level with safer defaults.
+
+> **Key insight**: Choose between clients by required protocol and lifecycle features plus verified
+> current behavior, not brand-level preference.
 
 ---
 
@@ -48,7 +54,8 @@ timeout = aiohttp.ClientTimeout(
 - `total` is a global ceiling
 - Easier to accidentally break streaming with `total`
 - More tuning required for correct behavior
-- `sock_read` does not reset per chunk by default
+- In current aiohttp, `sock_read` is the maximum interval between incoming data portions, so it
+  behaves as an inactivity bound and resets as data arrives
 
 ### Practical Difference
 

@@ -1,6 +1,26 @@
 # Part 4: Infrastructure & Technology Choices
 
-Concrete tools and services that implement the patterns from Parts 1–3. For each, we cover: what it is, which patterns it supports, how to use it, and when to pick it.
+<!-- length-justification: This decision guide keeps the comparable queue, result, lease, and notification capabilities of each infrastructure option together so one requirements matrix can be evaluated without cross-file drift. -->
+
+> **Who this is for**: Engineers who already understand durable jobs and need to choose the
+> smallest infrastructure that preserves claims, results, and recovery.
+
+Concrete tools and services that implement the patterns from Parts 1–3.
+
+## Start with the crash you must survive
+
+A worker claims job `abc` and dies halfway through. The minimum useful system must still retain the
+pending job or an expired claim, let a replacement claim a newer generation, and expose one durable
+result. If PostgreSQL is already authoritative and throughput is modest, begin with a database job
+table and `FOR UPDATE SKIP LOCKED`; add a broker only when delivery throughput, routing, or isolation
+justifies another system boundary.
+
+The success signal is a crash test: terminate the first worker after claim, observe the lease expire,
+then see one replacement finish job `abc` while the fenced old generation cannot commit. The product
+sections below are decision branches, not prerequisites.
+
+> **Key insight**: Infrastructure is adequate when its failure boundaries preserve the job protocol;
+> a longer feature list does not make lost claims or ambiguous results durable.
 
 ---
 
@@ -12,6 +32,8 @@ The Swiss Army knife. Redis can serve as the queue, the result store, the heartb
 
 ```python
 import redis.asyncio as redis
+from datetime import UTC, datetime, timedelta
+import secrets
 
 # Producer (orchestrator): enqueue task
 await r.lpush("tasks", json.dumps({"job_id": "abc", "payload": {...}}))
@@ -22,11 +44,25 @@ await r.lpush("tasks", json.dumps({"job_id": "abc", "payload": {...}}))
 raw = await r.blmove("tasks", "processing", timeout=30, src="RIGHT", dest="LEFT")
 task = json.loads(raw)
 
+# A processing-list entry alone has no owner or expiry. Record a generation
+# lease so a sweeper can distinguish active work from an abandoned claim.
+claim_key = f"claim:{task['job_id']}"
+owner = secrets.token_hex(16)
+generation = await r.hincrby(claim_key, "generation", 1)
+lease_expires = datetime.now(UTC) + timedelta(seconds=90)
+await r.hset(claim_key, mapping={
+    "owner": owner,
+    "generation": generation,
+    "lease_expires_at": lease_expires.isoformat(),
+})
+
 # After processing, remove from "processing"
 await r.lrem("processing", 1, raw)
 ```
 
-The `processing` list acts as an in-flight buffer. If the worker crashes, a sweeper can move items from `processing` back to `tasks`.
+The `processing` list acts as an in-flight buffer. A sweeper requeues only when the recorded lease
+has expired and a compare-and-set still matches its owner and generation. The replacement gets a
+new generation, which downstream conditional writes use to fence the old worker.
 
 ### As a Result Store
 
@@ -44,14 +80,17 @@ if raw:
 
 ```python
 # Worker: update heartbeat with TTL
-await r.set(f"heartbeat:{job_id}", datetime.utcnow().isoformat(), ex=90)
+await r.set(f"heartbeat:{job_id}", datetime.now(UTC).isoformat(), ex=90)
 
 # Monitor: check heartbeat
 alive = await r.exists(f"heartbeat:{job_id}")
-# If key expired (TTL elapsed) → worker is dead
+# Missing key → renewal was not observed; worker loss is suspected
 ```
 
-Using Redis TTL as an implicit heartbeat is elegant: the key auto-deletes if the worker stops refreshing it. No sweeper needed.
+TTL removes stale heartbeat data, but expiration does not transition or requeue a job. Maintain a
+deadline index (for example a sorted set keyed by lease expiry) and run a monitor that scans due
+leases, atomically advances the generation, and transitions/requeues the job. Do not depend on
+keyspace notifications for correctness because they can be disabled or missed.
 
 ### As Pub/Sub Notification
 
@@ -119,8 +158,9 @@ A traditional message broker with rich routing, acknowledgements, and delivery g
 
 ```python
 import aio_pika
+import os
 
-connection = await aio_pika.connect_robust("amqp://guest:guest@localhost/")
+connection = await aio_pika.connect_robust(os.environ["TASKS_RABBITMQ_URL"])
 channel = await connection.channel()
 await channel.set_qos(prefetch_count=1)  # One task at a time
 
@@ -138,6 +178,10 @@ async for message in queue:
         task = json.loads(message.body)
         await process(task)
 ```
+
+Create a least-privilege RabbitMQ user with access only to the task vhost, then supply its URL
+through `TASKS_RABBITMQ_URL`. The built-in `guest` account is a real credential pair, not an
+example placeholder.
 
 ### Key Features
 
@@ -206,6 +250,20 @@ resource "aws_lambda_event_source_mapping" "sqs_trigger" {
   scaling_config {
     maximum_concurrency = 10  # Max 10 Lambda invocations
   }
+
+  function_response_types = ["ReportBatchItemFailures"]
+}
+
+resource "aws_sqs_queue" "tasks_dlq" {
+  name = "tasks-dlq"
+}
+
+resource "aws_sqs_queue" "tasks" {
+  name = "tasks"
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.tasks_dlq.arn
+    maxReceiveCount     = 5
+  })
 }
 ```
 
@@ -213,7 +271,9 @@ The ESM automatically:
 - Polls the queue
 - Invokes the Lambda with the message
 - Deletes the message on successful Lambda return
-- Sends to DLQ on repeated failure
+- Sends to the configured DLQ after `maxReceiveCount`; without the source queue's redrive policy,
+  repeated failures remain on the source queue. With batches, return only failed item identifiers
+  through `ReportBatchItemFailures` so successful records are not retried.
 
 ### When to Use SQS
 
@@ -447,11 +507,24 @@ RETURNING *;
 ```python
 import asyncpg
 
-# Worker/Orchestrator: notify when job completes
-await conn.execute("NOTIFY job_updates, $1", json.dumps({"job_id": job_id, "status": "done"}))
+# Worker/Orchestrator: notify when job completes. NOTIFY's grammar does not
+# accept a bind parameter in the payload position; pg_notify() does.
+await conn.execute(
+    "SELECT pg_notify($1, $2)",
+    "job_updates",
+    json.dumps({"job_id": job_id, "status": "done"}),
+)
 
-# Client: listen for notifications
-await conn.add_listener("job_updates", lambda conn, pid, channel, payload: handle(payload))
+# Client: dedicate one persistent pool connection to LISTEN. Returning this
+# connection to the pool would make notification ownership ambiguous.
+listener_conn = await pool.acquire()
+await listener_conn.add_listener(
+    "job_updates", lambda conn, pid, channel, payload: handle(payload)
+)
+assert await listener_conn.fetchval(
+    "SELECT EXISTS (SELECT 1 FROM pg_listening_channels() AS channel WHERE channel = $1)",
+    "job_updates",
+)
 ```
 
 ### When to Use PostgreSQL as Queue

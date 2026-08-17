@@ -1,6 +1,13 @@
 # Part 5: Complete Production Architecture
 
+<!-- length-justification: This is the canonical end-to-end capacity topology; gateway, process, pod, shared admission, and dependency layers remain together because the narrowest limit can only be reviewed in the composed path. -->
+
+> **Who this is for**: Engineers composing process-local and fleet-wide capacity controls around a
+> FastAPI service.
+
 > **Principle**: Each layer has a non-overlapping responsibility.
+
+> **Key insight**: End-to-end capacity is constrained by the narrowest independently enforced layer.
 
 ---
 
@@ -31,36 +38,64 @@ External Vendor APIs
 
 ---
 
-## 2. Layer 1: API Gateway / Ingress Controller
+## 2. Layer 1: A Supported Gateway API Controller
 
 ### Role
 
-Protect the **entire cluster** from excessive or malicious inbound traffic.
+Terminate and route inbound traffic before it reaches the application. Global traffic protection
+requires a controller or external gateway whose counters are genuinely shared across replicas.
 
 ### Scope
 
-Cluster-wide, **before traffic reaches any pod**.
+Fleet entry point, **before traffic reaches an application pod**. Do not infer "cluster-wide rate
+limit" from this position alone: a per-replica gateway counter multiplies as gateway replicas scale.
 
 ### Responsibilities
 
 | Mechanism | Purpose |
 |-----------|---------|
-| Global RPS limit | Total traffic ceiling |
+| Shared RPS limit | Total traffic ceiling, only when all replicas use one counter service |
 | Per-IP rate limit | Prevent single-client floods |
 | Connection limits | Prevent socket exhaustion |
 | Bounded buffering | No unlimited queuing |
 
-### Example (Nginx Ingress)
+### Baseline routing with Kubernetes Gateway API
 
 ```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
 metadata:
-  annotations:
-    nginx.ingress.kubernetes.io/limit-rps: "2000"
-    nginx.ingress.kubernetes.io/limit-connections: "5000"
-    nginx.ingress.kubernetes.io/limit-rpm: "100"  # per IP
+  name: public-api
+spec:
+  gatewayClassName: supported-managed-gateway
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: api.example.com
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: api-example-com-tls
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: backend-api
+spec:
+  parentRefs:
+    - name: public-api
+  hostnames: ["api.example.com"]
+  rules:
+    - backendRefs:
+        - name: backend-api
+          port: 8000
 ```
+
+`GatewayClass` selects an installed, supported controller; it is not a portable rate-limit
+implementation. Configure shared limits through that controller's documented extension or an
+external API gateway, and verify the total counter while scaling gateway replicas from one to two.
+If the allowed total doubles, the counter is local rather than fleet-wide.
 
 ### What Gateway Does NOT Do
 

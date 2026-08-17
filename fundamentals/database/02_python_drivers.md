@@ -1,5 +1,13 @@
 # Python Database Drivers — psycopg3 and asyncpg
 
+<!-- length-justification: This is the canonical low-level PostgreSQL driver reference; the parallel sync and async examples stay together so protocol, parameterization, transaction, and bulk-I/O differences remain directly comparable. -->
+
+> **Who this is for**: Python backend engineers choosing or directly using psycopg or asyncpg below
+> an ORM.
+
+> **Key insight**: The driver owns protocol, connection, and transaction mechanics beneath
+> higher-level database APIs.
+
 > **What is a driver?** A database driver is the low-level library that speaks the database wire protocol. SQLAlchemy and other ORMs sit on top of a driver — they don't communicate with PostgreSQL themselves, they delegate to psycopg3 or asyncpg.
 
 ```
@@ -57,9 +65,11 @@ psycopg3 uses `%s` as the placeholder for all types (not `%d`, `%f`, etc.):
 # ✅ Parameterized — safe
 cur.execute("SELECT * FROM users WHERE email = %s AND is_active = %s", ("alice@example.com", True))
 
-# ❌ NEVER do this — SQL injection
-cur.execute(f"SELECT * FROM users WHERE email = '{email}'")
 ```
+
+An unsafe interpolated query would turn attacker input such as `x' OR TRUE --` into the inert
+text `SELECT * FROM users WHERE email = 'x' OR TRUE --'`. Do not make that shape executable;
+the parameterized call above keeps the value separate from SQL syntax.
 
 Named parameters:
 
@@ -372,9 +382,10 @@ row = await conn.fetchrow(
     "alice@example.com", True,
 )
 
-# ❌ NEVER — SQL injection
-row = await conn.fetchrow(f"SELECT * FROM users WHERE email = '{email}'")
 ```
+
+The same attack against an interpolated asyncpg query changes SQL structure. Keep `$1` binding as
+the only runnable form so attacker-controlled text remains a value rather than becoming SQL.
 
 ### 2.3 Fetch Methods
 

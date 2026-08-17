@@ -2,6 +2,9 @@
 
 > **Who this is for**: Engineers deciding how to wire metrics from a Python service into monitoring infrastructure — three ownership models, when to use each, and what the code actually looks like for each one.
 
+> **Key insight**: Choose the in-application metric API independently from transport and backend
+> routing.
+
 ---
 
 ## 1. The Core Question
@@ -68,8 +71,7 @@ def init_telemetry(app: FastAPI) -> None:
     trace_provider.add_span_processor(
         BatchSpanProcessor(
             OTLPSpanExporter(
-                endpoint=os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://localhost:4317"),
-                insecure=True,
+                endpoint=os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "https://localhost:4317"),
             )
         )
     )
@@ -217,20 +219,20 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 resource = Resource.create({SERVICE_NAME: os.getenv("SERVICE_NAME", "orders-api")})
 
-COLLECTOR_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4317")
+COLLECTOR_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://otel-collector:4317")
 
 
 def init_telemetry(app: FastAPI) -> None:
     # Traces → Collector
     trace_provider = TracerProvider(resource=resource)
     trace_provider.add_span_processor(
-        BatchSpanProcessor(OTLPSpanExporter(endpoint=COLLECTOR_ENDPOINT, insecure=True))
+        BatchSpanProcessor(OTLPSpanExporter(endpoint=COLLECTOR_ENDPOINT))
     )
     trace.set_tracer_provider(trace_provider)
 
     # Metrics → Collector (pushed every 30s)
     metric_reader = PeriodicExportingMetricReader(
-        OTLPMetricExporter(endpoint=COLLECTOR_ENDPOINT, insecure=True),
+        OTLPMetricExporter(endpoint=COLLECTOR_ENDPOINT),
         export_interval_millis=30_000,
     )
     metrics.set_meter_provider(MeterProvider(resource=resource, metric_readers=[metric_reader]))
@@ -317,8 +319,7 @@ def init_telemetry(app: FastAPI) -> None:
     trace_provider.add_span_processor(
         BatchSpanProcessor(
             OTLPSpanExporter(
-                endpoint=os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://localhost:4317"),
-                insecure=True,
+                endpoint=os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "https://localhost:4317"),
             )
         )
     )

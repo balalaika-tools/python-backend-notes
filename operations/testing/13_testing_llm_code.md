@@ -1,6 +1,10 @@
 # 13 - Testing LLM and Agentic Code
 
-> **Purpose**: Test LLM-powered features without pretending the model is deterministic. Keep the fast suite fast, pin down your contracts, and move probabilistic quality checks into explicit evals.
+> **Who this is for**: Engineers separating deterministic software contracts around an LLM from
+> probabilistic behavior evaluation.
+
+> **Key insight**: Deterministic tests protect the software contract around a model; evals estimate
+> behavior quality over a dataset rather than proving one output.
 
 LLM code has two very different parts:
 
@@ -339,7 +343,10 @@ Keep eval datasets boring and representative:
 - A stable expected outcome per case.
 - Enough examples to catch regression, not so many that every local run costs money.
 
-As of July 2026, OpenAI documents its older Evals platform as being deprecated, with read-only and shutdown dates later in 2026. That does not make evals obsolete; it means your eval data should live in your repo or data warehouse, and your runner should be portable across providers and hosted tooling.
+OpenAI currently exposes active Evals guides and `/v1/evals` API operations. Keep your evaluation
+data in a repository or governed data store and make the runner portable across hosted and local
+tooling; do not infer that evaluation as a practice is deprecated from the lifecycle of a legacy
+surface.
 
 ---
 

@@ -4,6 +4,28 @@
 
 ---
 
+## One request can be safe without being idempotent—or vice versa
+
+```http
+PUT /orders/42/status HTTP/1.1
+Content-Type: application/json
+
+{"status":"cancelled"}
+```
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"id":"42","status":"cancelled"}
+```
+
+Repeating this `PUT` has the same intended effect, so it is idempotent; it is not safe because it
+changes state. By contrast, `GET /orders/42` is safe. The visible success signal is that two
+identical `PUT`s leave one cancelled order rather than applying a second business effect.
+
+---
+
 ## 1. Semantics Are Independent of HTTP Version
 
 HTTP/1.1, HTTP/2, and HTTP/3 use different framing and transports, but share the semantics defined by RFC 9110.
@@ -177,4 +199,3 @@ Common failures:
 ---
 
 **Next**: [Resource and URI Design](03_resource_and_uri_design.md)
-

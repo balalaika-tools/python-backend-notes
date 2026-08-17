@@ -1,5 +1,13 @@
 # FastAPI Authentication & Security
 
+<!-- length-justification: This is the canonical FastAPI authentication implementation reference; password handling, token issuance/validation, dependencies, OAuth flow, and complete application composition remain together so security-critical checks are not copied inconsistently. -->
+
+> **Who this is for**: FastAPI engineers implementing identity verification and separate
+> authorization decisions at HTTP boundaries.
+
+> **Key insight**: Authentication proves identity; authorization separately decides whether that
+> identity may perform the requested action.
+
 A production guide to authentication, authorization, and security in FastAPI -- from mental model to battle-tested patterns.
 
 ---
@@ -167,18 +175,26 @@ from jwt import PyJWTError
 SECRET_KEY = "your-secret-key-from-environment"  # NEVER hardcode in production
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+TOKEN_ISSUER = "https://auth.example.com"
+TOKEN_AUDIENCE = "https://api.example.com"
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=15))
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "iss": TOKEN_ISSUER, "aud": TOKEN_AUDIENCE})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
 def decode_access_token(token: str) -> dict:
     """Decode and validate a JWT. Raises PyJWTError on failure."""
-    return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    return jwt.decode(
+        token,
+        SECRET_KEY,
+        algorithms=[ALGORITHM],
+        issuer=TOKEN_ISSUER,
+        audience=TOKEN_AUDIENCE,
+    )
 ```
 
 ### Token Expiration
@@ -910,14 +926,18 @@ settings = Settings()
 
 ### Not Validating Token Expiry
 
-```python
-# WRONG -- decoding without expiry validation
-payload = jwt.decode(token, SECRET_KEY, options={"verify_exp": False})
-```
+An unsafe decoder disables expiry verification through an option such as `verify_exp=False`.
+Keep that shape as inert text: making it executable invites it to survive copy/paste.
 
 ```python
 # CORRECT -- let the library enforce expiry (default behavior)
-payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+payload = jwt.decode(
+    token,
+    SECRET_KEY,
+    algorithms=[ALGORITHM],
+    issuer=TOKEN_ISSUER,
+    audience=TOKEN_AUDIENCE,
+)
 # Raises ExpiredSignatureError if token is expired
 ```
 
@@ -1070,6 +1090,8 @@ from pydantic import BaseModel
 SECRET_KEY = os.environ["SECRET_KEY"]
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+TOKEN_ISSUER = "https://auth.example.com"
+TOKEN_AUDIENCE = "https://api.example.com"
 
 # --- Security utilities ---
 
@@ -1104,6 +1126,8 @@ def create_access_token(data: dict) -> str:
     to_encode["exp"] = datetime.now(timezone.utc) + timedelta(
         minutes=ACCESS_TOKEN_EXPIRE_MINUTES
     )
+    to_encode["iss"] = TOKEN_ISSUER
+    to_encode["aud"] = TOKEN_AUDIENCE
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
@@ -1111,7 +1135,13 @@ def create_access_token(data: dict) -> str:
 
 def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=[ALGORITHM],
+            issuer=TOKEN_ISSUER,
+            audience=TOKEN_AUDIENCE,
+        )
         email: str = payload.get("sub")
         if email is None:
             raise HTTPException(status_code=401, detail="Invalid token")

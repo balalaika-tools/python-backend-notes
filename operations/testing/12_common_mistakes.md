@@ -1,6 +1,10 @@
 # 12 — Common Mistakes
 
-> **Purpose**: The recurring pitfalls every FastAPI test suite hits sooner or later. Each has a minimal bad example and the fix.
+> **Who this is for**: FastAPI teams diagnosing misleading tests, state leakage, flakes, and patching
+> errors after a baseline suite exists.
+
+> **Key insight**: Most suite flakes are state-lifetime or boundary errors, so the symptom should
+> lead back to the owner of that state.
 
 ---
 
@@ -235,7 +239,10 @@ def test_thing():
     ...
 ```
 
-A skipped test is worse than no test — it tricks you into thinking coverage exists. If a test is flaky, either fix the isolation (almost always the real bug) or delete the test. Don't leave it half-alive.
+A permanently skipped test creates false confidence. Delete only a test that is invalid or
+redundant. Valuable flaky coverage often exposes a real intermittent failure: quarantine it with a
+specific marker, assign an owner and tracked issue, record a re-enable deadline, and keep it in a
+separate scheduled job while the main gate remains deterministic.
 
 Acceptable exceptions:
 

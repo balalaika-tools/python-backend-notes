@@ -1,6 +1,16 @@
 # Pydantic — Data Validation for FastAPI
 
-Pydantic is a **data validation library**, not a serializer. It guarantees that if your code receives a model instance, the data inside it is **already valid**. This guide covers Pydantic v2 with FastAPI.
+<!-- length-justification: This is the canonical Pydantic/FastAPI model reference; construction, validation, serialization, schemas, validators, and framework behavior remain together so boundary guarantees are stated once. -->
+
+> **Who this is for**: FastAPI engineers defining typed validation and serialization boundaries with
+> Pydantic v2.
+
+> **Key insight**: Pydantic guarantees the post-validation output shape at validation boundaries,
+> not perpetual validity of every mutable instance.
+
+Pydantic validates and serializes typed data. Normal construction produces values that satisfied
+the model's rules **at construction time**; later mutation can invalidate a mutable model, and
+`model_construct()` deliberately bypasses validation. This guide covers Pydantic v2 with FastAPI.
 
 ---
 
@@ -16,15 +26,17 @@ Pydantic does **three things**:
 
 The critical insight:
 
-> **If you have a model instance, the data is valid. Period.**
+> **A normally constructed model was valid when it was created.**
 
-You never need to check fields after instantiation. Validation happens at construction time or it raises `ValidationError`.
+Validation happens during normal construction or raises `ValidationError`. Configure
+`validate_assignment=True` or make the model frozen when code must preserve that guarantee after
+attribute assignment; never treat `model_construct()` as validated input.
 
 ### Pydantic Is Not
 
 | Pydantic is NOT | Pydantic IS |
 |-----------------|-------------|
-| A serialization library | A validation library that can serialize |
+| Only a serialization library | A validation library with serialization support |
 | An ORM | A data contract layer |
 | A schema generator | A runtime type enforcer |
 | Optional decoration | Your first line of defense against bad data |
@@ -50,7 +62,8 @@ Key rules:
 - **Type annotations are required** — they define both the type and validation
 - **Fields without defaults are required**
 - **Fields with defaults are optional** (callers can omit them)
-- **Order matters** — required fields must come before fields with defaults
+- **Declaration order controls field order** in schemas, errors, and serialization; Pydantic does
+  not require all required fields to appear before fields with defaults
 
 ### Creating Instances
 

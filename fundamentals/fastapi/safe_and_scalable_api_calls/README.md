@@ -1,6 +1,10 @@
 # Safe and Scalable External API Calls
 
-> **Purpose**: Production-grade patterns for calling LLMs, agents, and external APIs from FastAPI.
+> **Who this is for**: FastAPI engineers calling LLMs, agents, and external APIs under bounded
+> capacity and partial failure.
+
+> **Key insight**: Admit work before execution and keep local overload distinct from retryable
+> dependency failure.
 
 ---
 
@@ -74,26 +78,42 @@ sem = asyncio.Semaphore(50)
 rate = AsyncLimiter(60, 60)
 
 
+class AdmissionTimeout(Exception):
+    pass
+
+
+class AttemptDeadlineExceeded(Exception):
+    pass
+
+
 async def call_api(payload: dict):
     for attempt in range(3):
         try:
-            async with asyncio.timeout(5):      # queue timeout
-                async with rate:                 # throughput control
-                    async with sem:              # concurrency gate
-                        async with asyncio.timeout(30):  # call timeout
-                            response = await client.post(url, json=payload)
-                            response.raise_for_status()
-                            return response.json()
-        
-        except httpx.TimeoutException:
+            try:
+                async with asyncio.timeout(5):  # local admission timeout
+                    await rate.acquire()
+                    await sem.acquire()
+            except TimeoutError as exc:
+                raise AdmissionTimeout("local capacity unavailable") from exc
+
+            try:
+                try:
+                    async with asyncio.timeout(30):  # downstream attempt deadline
+                        response = await client.post(
+                            "https://vendor.example/api", json=payload
+                        )
+                except TimeoutError as exc:
+                    raise AttemptDeadlineExceeded from exc
+                response.raise_for_status()
+                return response.json()
+            finally:
+                sem.release()
+
+        except AdmissionTimeout:
+            raise  # local overload is deliberately not retried
+        except (httpx.TimeoutException, AttemptDeadlineExceeded):
             if attempt < 2:
                 await asyncio.sleep(2 ** attempt)
-                continue
-            raise
-        
-        except asyncio.TimeoutError:
-            if attempt == 0:
-                await asyncio.sleep(1)
                 continue
             raise
 ```
@@ -102,8 +122,8 @@ async def call_api(payload: dict):
 
 ## Key Principles
 
-1. **Client limits are the only hard limit** — everything else is advisory
-2. **`asyncio.timeout` does NOT terminate sockets** — only client timeouts do
+1. **Outer deadlines bound total wall time** — `asyncio.timeout()` cancels the waiting task
+2. **HTTPX timeouts bound transport phases/inactivity** — they are not a total deadline
 3. **Rate limiting ≠ concurrency control** — they serve different purposes
 4. **Retries must be outside semaphore** — never sleep while holding resources
 5. **Per-pod limits don't protect vendors** — use Redis for global limits

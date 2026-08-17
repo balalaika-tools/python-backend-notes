@@ -1,6 +1,39 @@
 # OTel Collector Config
 
+<!-- length-justification: This is the canonical Collector configuration reference; receivers, processors, exporters, service pipelines, deployment modes, and vendor routes remain together because a valid component is inert until the same config connects it into a signal pipeline. -->
+
 > **Who this is for**: Engineers deploying the OpenTelemetry Collector and writing its YAML config — understanding what every section does, why it exists, and how to route traces and metrics to different backends.
+
+---
+
+## Minimal pipeline: receive one OTLP trace and print it
+
+```yaml
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 127.0.0.1:4317
+exporters:
+  debug:
+    verbosity: basic
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [debug]
+```
+
+Save this as `collector.yaml`, start the Collector with that config, and point the local SDK
+quick proof at `http://127.0.0.1:4317` in an explicitly plaintext development environment. The
+Collector log should show a one-span resource batch containing `checkout`. A listening port with
+no debug export means the receiver exists but the pipeline is not connected.
+
+> **Production:** bind beyond loopback only with authentication and verified TLS. Later sections
+> add processors, batching, retries, and backend exporters.
+
+> **Core:** A Collector component does nothing until a service pipeline connects its receiver,
+> processors, and exporters for a specific signal.
 
 ---
 
@@ -498,7 +531,7 @@ Pass the variables via your container's environment:
 ```bash
 docker run \
   -e GROUNDCOVER_ENDPOINT="ingest.groundcover.com:443" \
-  -e GROUNDCOVER_API_KEY="abc123" \
+  -e GROUNDCOVER_API_KEY="${GROUNDCOVER_API_KEY:?set-a-test-key}" \
   -v ./config.yaml:/etc/otelcol-contrib/config.yaml \
   otel/opentelemetry-collector-contrib:0.150.0
 ```

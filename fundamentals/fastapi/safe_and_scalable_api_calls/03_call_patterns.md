@@ -1,6 +1,14 @@
 # Part 3: Call Patterns and Retry Logic
 
+<!-- length-justification: This is the canonical external-call implementation note; admission, per-attempt execution, retry classification, backoff, and complete composition stay together because their nesting order is the mechanism being taught. -->
+
+> **Who this is for**: FastAPI engineers composing bounded admission, downstream calls, and eligible
+> retries into one safe call path.
+
 > **Principle**: Retries must happen outside the semaphore. Never sleep while holding resources.
+
+> **Key insight**: Queue admission, downstream execution, and retry are separate phases with
+> separate failure semantics.
 
 ---
 
@@ -24,6 +32,14 @@ class RetryableError(Exception):
 class FinalFailure(Exception):
     """Permanent failure after all retries exhausted"""
     pass
+
+
+class AdmissionTimeout(Exception):
+    """Local capacity was unavailable; retrying would amplify overload."""
+
+
+class AttemptDeadlineExceeded(Exception):
+    """One admitted downstream attempt exceeded its wall-clock budget."""
 
 
 # === GLOBAL PRIMITIVES (must be created once at app startup) ===
@@ -52,47 +68,53 @@ async def call_llm(payload: dict):
     - Call timeout (latency control)
     - Retry logic with proper exception handling
     """
-    for attempt in range(3):
-        try:
-            # Queue timeout: do not wait forever to START
-            async with asyncio.timeout(5):
-                async with llm_rate:        # throughput control
-                    async with llm_sem:     # concurrency control
-                        
-                        # Call timeout: do not let vendor hang
-                        async with asyncio.timeout(30):
-                            response = await client.post(
-                                "https://vendor/api",
-                                json=payload,
-                            )
-                            response.raise_for_status()
-                            return response.json()
-        
-        except httpx.TimeoutException:
-            # Vendor / network slowness → retry
-            if attempt < 2:
-                await asyncio.sleep(backoff(attempt))
-                continue
-            raise FinalFailure("Vendor timeout after retries")
-        
-        except httpx.HTTPStatusError as e:
-            # 5xx → retry, 4xx → don't retry
-            if 500 <= e.response.status_code < 600:
-                if attempt < 2:
-                    await asyncio.sleep(backoff(attempt))
-                    continue
-            raise FinalFailure(f"HTTP error: {e.response.status_code}")
-        
-        except asyncio.TimeoutError:
-            # Could be queue timeout OR call timeout
-            # First attempt → might be call timeout, try once more
-            if attempt == 0:
-                await asyncio.sleep(backoff(attempt))
-                continue
-            # Subsequent timeout → likely system overload
-            raise FinalFailure("Timeout after retries")
-    
-    raise FinalFailure("All retries exhausted")
+    try:
+        # Total budget includes admission, attempts, and retry sleep.
+        async with asyncio.timeout(75):
+            for attempt in range(3):
+                try:
+                    # Admission has its own scope and exception. Never classify
+                    # local overload as a retryable vendor timeout.
+                    try:
+                        async with asyncio.timeout(5):
+                            await llm_rate.acquire()
+                            await llm_sem.acquire()
+                    except TimeoutError as exc:
+                        raise AdmissionTimeout("local capacity unavailable") from exc
+
+                    try:
+                        try:
+                            async with asyncio.timeout(30):
+                                response = await client.post(
+                                    "https://vendor.example/api",
+                                    json=payload,
+                                )
+                        except TimeoutError as exc:
+                            raise AttemptDeadlineExceeded from exc
+
+                        response.raise_for_status()
+                        return response.json()
+                    finally:
+                        llm_sem.release()
+
+                except AdmissionTimeout:
+                    raise  # fail fast; another local attempt adds pressure
+                except (httpx.TimeoutException, AttemptDeadlineExceeded):
+                    if attempt < 2:
+                        await asyncio.sleep(backoff(attempt))
+                        continue
+                    raise FinalFailure("downstream timeout after retries")
+                except httpx.HTTPStatusError as exc:
+                    if 500 <= exc.response.status_code < 600 and attempt < 2:
+                        await asyncio.sleep(backoff(attempt))
+                        continue
+                    raise FinalFailure(f"HTTP error: {exc.response.status_code}") from exc
+
+            raise FinalFailure("all retries exhausted")
+    except TimeoutError as exc:
+        # This can only be the outer 75-second budget; inner deadlines were
+        # converted to distinct exception types in their own scopes.
+        raise FinalFailure("total call budget exhausted") from exc
 ```
 
 ---
@@ -103,11 +125,9 @@ async def call_llm(payload: dict):
 
 ```
 1. for attempt in range(3):     ← retry loop OUTSIDE everything
-2.   async with timeout(5):     ← queue timeout
-3.     async with rate:         ← throughput control
-4.       async with sem:        ← concurrency control
-5.         async with timeout:  ← call timeout
-6.           await client.post  ← actual call
+2.   timeout(5): acquire rate + semaphore  ← admission timeout; never retried
+3.   timeout(30): client.post              ← downstream attempt deadline
+4.   release semaphore                     ← before retry sleep
 ```
 
 **Critical**: Retry loop is **outermost**. Semaphore is released before sleeping.
@@ -214,17 +234,15 @@ This means:
 
 ```python
 async def call_with_hard_reject():
-    # Try to acquire immediately
+    # Acquire one permit within the rejection budget. AsyncLimiter permits are
+    # consumed, not held/released like a semaphore, so do not acquire again.
     try:
         async with asyncio.timeout(0.1):  # very short
-            async with llm_rate:
-                pass  # acquired
-    except asyncio.TimeoutError:
+            await llm_rate.acquire()
+    except TimeoutError:
         raise HTTPException(429, "Rate limit - try later")
-    
-    # Now actually make the call
-    async with llm_rate:
-        return await client.post(...)
+
+    return await client.post(...)
 ```
 
 ---

@@ -1,6 +1,10 @@
 # 11 — Coverage & CI
 
-> **Purpose**: Measure which lines your tests actually exercise, keep the suite fast, and run it on every push.
+> **Who this is for**: Python teams using coverage and continuous integration to find unobserved
+> paths without confusing execution with confidence.
+
+> **Key insight**: Coverage locates unobserved execution paths; it cannot establish whether
+> assertions protect the right behavior.
 
 Coverage is a proxy metric — 100% coverage does not mean "well tested", it means "every line was executed at least once". Low coverage, though, is a reliable red flag: a file at 20% almost certainly has broken paths no one has seen fail.
 
@@ -99,7 +103,9 @@ Pick a threshold that reflects what actually matters:
 | Typical service | 75–85% | Business logic covered; UI / adapters partial |
 | Critical service (payments, auth) | 90%+ | Every branch you can exercise |
 
-Low-value code (trivial serializers, routing glue) pulling the number down is usually a sign to add `omit` entries, not to write meaningless tests.
+Do not hide low-value production glue with `omit` merely to improve the percentage. Reserve
+`omit` for generated or intentionally non-executable files. Either accept the lower threshold or
+cover the glue through a higher-level test whose assertions protect the behavior that matters.
 
 ---
 
@@ -150,7 +156,7 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-python@v5
         with:

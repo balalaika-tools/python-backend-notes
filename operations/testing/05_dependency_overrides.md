@@ -1,6 +1,24 @@
 # 05 — Dependency Overrides
 
-> **Purpose**: Swap real dependencies (DB session, current user, settings) for test doubles through FastAPI's DI system, with isolation that survives hundreds of tests.
+> **Who this is for**: FastAPI engineers replacing database, identity, or settings dependencies in
+> tests without changing endpoint code.
+
+## Smallest observable override
+
+```python
+app.dependency_overrides[get_current_user] = lambda: User(id="test-user")
+try:
+    response = TestClient(app).get("/me")
+    assert response.json() == {"id": "test-user"}
+finally:
+    app.dependency_overrides.pop(get_current_user, None)
+```
+
+The visible result is the fake identity in the response; seeing a production user means the
+endpoint depends on a different callable object or the override was installed on another app.
+
+> **Key insight**: FastAPI overrides replace callable identities in one app's dependency graph, so
+> isolation depends on installing and restoring the exact mapping for each test.
 
 `dependency_overrides` is FastAPI's answer to "how do I test this without the real database". If your service uses `Depends(...)` cleanly, overriding is usually a two-line change. If testing is painful, the problem is almost always in how dependencies are wired.
 
@@ -50,6 +68,7 @@ Test code:
 
 ```python
 # tests/conftest.py
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app.main import app
@@ -67,7 +86,18 @@ def override_get_db():
     finally:
         db.close()
 
-app.dependency_overrides[get_db] = override_get_db
+@pytest.fixture(autouse=True)
+def install_test_db_override():
+    """Install the DB override for every test and restore prior state afterward."""
+    previous = app.dependency_overrides.get(get_db)
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        yield
+    finally:
+        if previous is None:
+            app.dependency_overrides.pop(get_db, None)
+        else:
+            app.dependency_overrides[get_db] = previous
 ```
 
 For the full real-DB vs transaction-rollback story, see [08 — Database Testing](08_database_testing.md).
@@ -166,15 +196,21 @@ def test_something():
 ```
 
 ```python
-# ✅✅ Better — autouse fixture (do this once, globally)
+# ✅✅ Better — snapshot and restore the mapping for every test
 # tests/conftest.py
 @pytest.fixture(autouse=True)
 def reset_dependency_overrides():
-    yield
-    app.dependency_overrides.clear()
+    previous = app.dependency_overrides.copy()
+    try:
+        yield
+    finally:
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(previous)
 ```
 
-`autouse=True` means the fixture runs for every test automatically. `yield` + post-yield cleanup guarantees the clear runs even if the test raises.
+`autouse=True` means the fixture runs for every test automatically. Snapshot/restore matters when
+another fixture installs a baseline override such as the test database: a bare `clear()` would
+erase that baseline after the first test and allow later tests to call the production dependency.
 
 > **Do this in `conftest.py` once, for the whole project.** Debugging a test suite where override state leaks between tests is among the least rewarding activities in software.
 

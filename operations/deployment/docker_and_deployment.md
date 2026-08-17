@@ -1,6 +1,14 @@
 # Docker and Deployment for FastAPI
 
+<!-- length-justification: This is the canonical deployment path from image construction through process lifecycle and Kubernetes operation; the later orchestration material remains here because health, shutdown, identity, and resource settings must be verified against the same container contract. -->
+
+> **Who this is for**: FastAPI engineers building a reproducible container and carrying its health,
+> shutdown, identity, and capacity contract into deployment.
+
 A production-focused guide to containerizing and deploying FastAPI applications — from Dockerfile to graceful shutdown.
+
+> **Key insight**: A deployable image is only the artifact; production correctness comes from the
+> runtime contract around identity, signals, health, resources, and rollout.
 
 ---
 
@@ -429,6 +437,7 @@ build/
 
 ```python
 from fastapi import FastAPI, Response
+import asyncio
 import asyncpg
 import redis.asyncio as redis
 
@@ -456,14 +465,16 @@ async def readiness(response: Response):
 
     # Check database
     try:
-        await app.state.db_pool.fetchval("SELECT 1")
+        async with asyncio.timeout(1):
+            await app.state.db_pool.fetchval("SELECT 1")
         checks["database"] = "ok"
     except Exception:
         checks["database"] = "unavailable"
 
     # Check Redis
     try:
-        await app.state.redis.ping()
+        async with asyncio.timeout(1):
+            await app.state.redis.ping()
         checks["redis"] = "ok"
     except Exception:
         checks["redis"] = "unavailable"
@@ -475,6 +486,10 @@ async def readiness(response: Response):
 
     return {"status": "ready" if all_healthy else "degraded", "checks": checks}
 ```
+
+A healthy probe returns `200` with both checks set to `ok`. If Redis stalls past one second, the
+same endpoint returns `503` with `"redis": "unavailable"`; it does not hang until Kubernetes's
+probe timeout kills the request.
 
 ### Common Mistake: Liveness Checks That Call Databases
 
@@ -569,7 +584,7 @@ async def lifespan(app: FastAPI):
 
     # ---- Shutdown ----
     # Close in reverse order of creation
-    await app.state.redis.close()
+    await app.state.redis.aclose()
     await app.state.http_client.aclose()
     await app.state.db_pool.close()
 
@@ -786,7 +801,7 @@ COPY ./app /app/app
 FROM python:3.13-slim AS builder
 
 # Copy uv binary directly from the official image — no pip install needed
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /uvx /bin/
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
@@ -816,7 +831,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 | Flag / Setting | Purpose |
 |---|---|
-| `COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv` | Copies the uv binary from the official image. No pip install needed — it's a single static binary |
+| `COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /uvx /bin/` | Copies a version-pinned uv toolchain from the official image; pin a digest as well when the supply-chain policy requires immutable image identity |
 | `UV_COMPILE_BYTECODE=1` | Pre-compile `.pyc` files during install. Faster cold start (no compilation at runtime) |
 | `UV_LINK_MODE=copy` | Copy files into `.venv` instead of symlinking. Required for multi-stage builds where the source layer won't exist |
 | `--frozen` | Use `uv.lock` exactly as-is. Fails if lockfile is outdated (guarantees reproducibility) |
@@ -1066,7 +1081,7 @@ WORKDIR /app
 FROM base AS builder
 
 # Single static binary — no pip install, no version conflicts
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /uvx /bin/
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
@@ -1243,8 +1258,12 @@ containers:
 
 Interaction with graceful shutdown:
 - On termination, Kubernetes sends SIGTERM, then waits `terminationGracePeriodSeconds` (default 30s) before SIGKILL.
-- **Readiness check must start failing *before* SIGTERM arrives** so traffic stops before in-flight requests wind down. Implement a "draining" mode in your app that flips a flag when shutdown begins, which your `/ready` endpoint reads.
-- Match `preStop` hooks to avoid races: `sleep 5` before shutdown gives the LB time to stop sending traffic.
+- Kubernetes marks terminating endpoints `ready=false` in EndpointSlices as Pod termination begins,
+  while the container receives its `preStop` hook and then `SIGTERM`. The application should stop
+  accepting new work on `SIGTERM` and finish in-flight work within the grace period.
+- Add an explicit drain endpoint or a bounded `preStop` propagation wait only when an external load
+  balancer or mesh demonstrably continues routing after the EndpointSlice update. Measure that
+  propagation delay; a ceremonial `sleep 5` is not a universal readiness requirement.
 
 ### Resource Requests and Limits
 
@@ -1307,7 +1326,10 @@ spec:
       listLength: "10"     # target: one pod per ~10 messages queued
 ```
 
-KEDA can scale to zero, which HPA cannot — useful for low-traffic workers. Pair with a cold-start-tolerant workload.
+KEDA provides mature event-driven scale-to-zero behavior, which is useful for low-traffic workers.
+The Horizontal Pod Autoscaler normally uses `minReplicas >= 1`; Kubernetes can permit zero only
+behind the alpha `HPAScaleToZero` feature gate and with Object or External metrics. Pair any
+scale-to-zero design with a cold-start-tolerant workload.
 
 **Autoscaling gotchas:**
 - Scaling on CPU alone is blunt. A queue-driven worker that's I/O-waiting isn't using CPU even when backed up. Scale on queue depth or response latency instead.

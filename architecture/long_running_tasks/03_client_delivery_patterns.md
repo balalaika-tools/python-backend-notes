@@ -1,6 +1,14 @@
 # Part 3: Client Delivery Patterns
 
+<!-- length-justification: The delivery variants remain together because their central decision matrix and shared durable-status recovery contract are the canonical comparison; each implementation is a bounded protocol excerpt rather than a separate tutorial. -->
+
+> **Who this is for**: Engineers returning long-running job status and progress to browsers, scripts,
+> or partner services.
+
 How the client gets the result back after submitting a long-running task. Every pattern starts the same way: the client sends a request, gets a `202 Accepted` with a job ID, and then... what?
+
+> **Key insight**: Push reduces notification latency but never replaces a durable status read used
+> for reconnect, replay, and missed-message recovery.
 
 ---
 
@@ -42,6 +50,10 @@ _subscribers: dict[str, set[WebSocket]] = {}
 
 @app.websocket("/ws/jobs/{job_id}")
 async def job_websocket(ws: WebSocket, job_id: str):
+    principal = await authenticate_websocket(ws)
+    if not await principal_can_read_job(principal, job_id):
+        await ws.close(code=1008, reason="not authorized for this job")
+        return
     await ws.accept()
     _subscribers.setdefault(job_id, set()).add(ws)
 
@@ -151,13 +163,16 @@ Client                              Server
 ### Server Implementation
 
 ```python
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 import asyncio
 import json
 
 @app.get("/jobs/{job_id}/stream")
-async def job_stream(job_id: str):
+async def job_stream(job_id: str, principal=Depends(get_current_principal)):
+    if not await principal_can_read_job(principal, job_id):
+        raise HTTPException(status_code=404, detail="job not found")
+
     async def event_generator():
         while True:
             status = await get_job_status(job_id)
@@ -196,10 +211,15 @@ evtSource.onmessage = (event) => {
 | **Server cost** | Medium — one open HTTP connection per client (lighter than WS) |
 | **Client complexity** | Low — `EventSource` API handles reconnection |
 | **Progress updates** | Yes — natural fit |
-| **Infrastructure** | Works through any HTTP proxy/LB (no upgrade needed) |
+| **Infrastructure** | No protocol upgrade, but buffering and idle-timeout settings must permit streaming |
 | **Best for** | Progress updates, when you don't need client-to-server messages |
 
 ---
+
+Disable proxy response buffering for the event-stream route, send periodic comment heartbeats
+before the shortest proxy idle timeout, and cancel the generator when the client disconnects.
+Verify with `curl -N`: progress lines should appear at their production intervals, not arrive in
+one batch when the response closes. A buffered SSE response is not working push delivery.
 
 ## Pattern 3: Short Polling
 
@@ -369,28 +389,130 @@ Client                              Server                      Worker
 ### Server Implementation
 
 ```python
+import base64
+import hashlib
+import hmac
+import httpx
+import json
+import random
+import time
+
 @app.post("/jobs")
-async def create_job(payload: dict, callback_url: Optional[str] = None):
-    job = await store_job(payload, callback_url=callback_url)
+async def create_job(
+    payload: dict,
+    callback_id: str | None = None,
+    principal=Depends(get_current_principal),
+):
+    # callback_id names a destination registered and verified for this tenant.
+    # The request cannot persist an arbitrary URL.
+    callback = (
+        await get_callback_registration(principal.tenant_id, callback_id)
+        if callback_id is not None
+        else None
+    )
+    job = await store_job(payload, callback_registration_id=callback.id if callback else None)
     await dispatch_to_worker(job)
     return {"job_id": job.id}
 
 async def on_worker_complete(job_id: str, result: dict):
     job = await get_job(job_id)
 
-    if job.callback_url:
-        async with httpx.AsyncClient() as client:
-            for attempt in range(3):  # Retry webhook delivery
-                try:
-                    resp = await client.post(job.callback_url, json={
-                        "job_id": job_id,
-                        "status": "succeeded",
-                        "result": result,
-                    }, timeout=10)
-                    if resp.status_code < 300:
-                        break
-                except httpx.HTTPError:
-                    await asyncio.sleep(2 ** attempt)
+    if job.callback_registration_id:
+        body = json.dumps(
+            {"job_id": job_id, "status": "succeeded", "result": result},
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        delivery = await callback_deliveries.create(
+            registration_id=job.callback_registration_id,
+            delivery_id=job_id,
+            body=body,
+            state="pending",
+        )
+        await enqueue_callback_delivery(delivery.id)
+
+
+async def deliver_callback(delivery_id: str):
+    delivery = await callback_deliveries.get(delivery_id)
+    registration = await load_callback_registration(delivery.registration_id)
+    body = delivery.body
+    try:
+        timestamp = str(int(time.time()))
+        signature = hmac.new(
+            registration.signing_secret,
+            timestamp.encode("ascii") + b"." + body,
+            hashlib.sha256,
+        ).hexdigest()
+
+        # The egress service owns the verified registration and enforces HTTPS,
+        # DNS resolution at connect time, private/link-local/loopback rejection,
+        # no redirects, and network egress policy. The worker never fetches a
+        # caller-controlled URL directly.
+        response = await callback_egress_client.post(
+            "/v1/deliver",
+            json={
+                "registration_id": registration.id,
+                "body_base64": base64.b64encode(body).decode("ascii"),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "X-Webhook-Version": "v1",
+                    "X-Webhook-Timestamp": timestamp,
+                    "X-Webhook-Signature": f"v1={signature}",
+                    "X-Webhook-Delivery": delivery.delivery_id,
+                },
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+        await callback_deliveries.mark_delivered(delivery.id, delivered_at=time.time())
+    except httpx.HTTPError as exc:
+        attempt = delivery.attempt_count + 1
+        if attempt >= 8:
+            await callback_deliveries.mark_failed(
+                delivery.id, attempt_count=attempt, last_error=type(exc).__name__
+            )
+            callback_delivery_failed_total.inc()
+        else:
+            delay = min(900, 2**attempt) + random.uniform(0, 1)
+            await callback_deliveries.schedule_retry(
+                delivery.id,
+                attempt_count=attempt,
+                next_attempt_at=time.time() + delay,
+                last_error=type(exc).__name__,
+            )
+```
+
+A dispatcher queries durable `pending` rows whose `next_attempt_at` is due. Success is visible as a
+`delivered` row and counter; exhaustion is an inspectable `failed` row plus
+`callback_delivery_failed_total`, not a webhook silently abandoned after an in-memory loop.
+
+The receiver computes HMAC-SHA256 over the exact raw body bytes prefixed by
+`<timestamp>.`, rejects timestamps outside a short window, and uses
+`hmac.compare_digest()` for the signature comparison. It also records
+`X-Webhook-Delivery` before applying the effect so a retry cannot repeat it. Registration rejects
+non-HTTPS URLs and the egress service repeats address checks after DNS resolution at connection
+time; application-only URL parsing does not stop DNS rebinding.
+
+```python
+async def verify_callback(raw_body: bytes, headers, secret: bytes, replay_store) -> dict:
+    timestamp = headers["X-Webhook-Timestamp"]
+    delivery_id = headers["X-Webhook-Delivery"]
+    if abs(int(time.time()) - int(timestamp)) > 300:
+        raise ValueError("stale webhook")
+
+    supplied = headers["X-Webhook-Signature"].removeprefix("v1=")
+    expected = hmac.new(
+        secret,
+        timestamp.encode("ascii") + b"." + raw_body,
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(supplied, expected):
+        raise ValueError("invalid webhook signature")
+
+    # SET NX with a five-minute TTL is one concrete implementation.
+    if not await replay_store.add_once(delivery_id, ttl_seconds=300):
+        raise ValueError("replayed webhook")
+    return json.loads(raw_body)
 ```
 
 ### Characteristics
@@ -436,14 +558,15 @@ import redis.asyncio as redis
 
 async def wait_for_result(redis_client: redis.Redis, job_id: str, timeout: float = 600.0):
     pubsub = redis_client.pubsub()
-    await pubsub.subscribe(f"job:{job_id}")
-
     try:
-        async for message in pubsub.listen():
-            if message["type"] == "message":
-                return json.loads(message["data"])
+        await pubsub.subscribe(f"job:{job_id}")
+        async with asyncio.timeout(timeout):
+            async for message in pubsub.listen():
+                if message["type"] == "message":
+                    return json.loads(message["data"])
     finally:
         await pubsub.unsubscribe(f"job:{job_id}")
+        await pubsub.aclose()
 ```
 
 ### With Fallback (Pub/Sub + Polling)
@@ -451,7 +574,7 @@ async def wait_for_result(redis_client: redis.Redis, job_id: str, timeout: float
 Pub/Sub is fire-and-forget — if the client subscribes *after* the result is published, it misses it. Always combine with a check:
 
 ```python
-async def wait_for_result_safe(redis_client: redis.Redis, job_id: str):
+async def wait_for_result_safe(redis_client: redis.Redis, job_id: str, timeout: float = 600.0):
     # 1. Check if already done (race condition safety)
     existing = await redis_client.get(f"result:{job_id}")
     if existing:
@@ -459,19 +582,22 @@ async def wait_for_result_safe(redis_client: redis.Redis, job_id: str):
 
     # 2. Subscribe and wait
     pubsub = redis_client.pubsub()
-    await pubsub.subscribe(f"job:{job_id}")
+    try:
+        await pubsub.subscribe(f"job:{job_id}")
 
-    # 3. Check again after subscribing (close the race window)
-    existing = await redis_client.get(f"result:{job_id}")
-    if existing:
+        # 3. Check again after subscribing (close the race window)
+        existing = await redis_client.get(f"result:{job_id}")
+        if existing:
+            return json.loads(existing)
+
+        # 4. Wait for pub/sub message under the caller's deadline
+        async with asyncio.timeout(timeout):
+            async for message in pubsub.listen():
+                if message["type"] == "message":
+                    return json.loads(message["data"])
+    finally:
         await pubsub.unsubscribe(f"job:{job_id}")
-        return json.loads(existing)
-
-    # 4. Wait for pub/sub message
-    async for message in pubsub.listen():
-        if message["type"] == "message":
-            await pubsub.unsubscribe(f"job:{job_id}")
-            return json.loads(message["data"])
+        await pubsub.aclose()
 ```
 
 ### Characteristics

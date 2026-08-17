@@ -1,6 +1,30 @@
 # Redis HA and Persistence
 
-> A single Redis node is a single point of failure and a single point of data loss. This guide covers the three things you have to think about for production Redis: **persistence** (what survives a crash), **high availability** (what happens on node failure), and **scale** (what happens when one node is not enough). It also covers the failure modes you actually need to plan for.
+> **Who this is for**: Engineers deciding what Redis state may survive restart or failover and how to
+> verify the chosen loss window.
+
+A single Redis node is a single point of failure and data loss.
+
+## Verify the durability claim before comparing modes
+
+On a disposable Redis instance configured for the mode you intend to use:
+
+```bash
+redis-cli SET durability:probe before-restart
+redis-cli INFO persistence
+redis-cli INFO replication
+```
+
+`INFO persistence` must show the intended `aof_enabled`/RDB state and no failed background rewrite;
+`INFO replication` must show the expected role and connected replicas. Restart the instance, then
+run `redis-cli GET durability:probe`. After a test promotion, the promoted node must report
+`role:master` and return the probe. Rising `master_repl_offset` lag, a disconnected replica, or
+`aof_last_bgrewrite_status:err` means the advertised recovery path is unhealthy.
+
+This verifies survival in one controlled event; it does not prove zero loss under every failover.
+
+> **Key insight**: Persistence and replication reduce different loss windows, so a durability claim
+> is only meaningful when a crash/promotion test observes both disk state and replication health.
 
 ---
 
@@ -61,7 +85,7 @@ aof-use-rdb-preamble yes   # hybrid: RDB preamble + AOF tail
 
 - On restart, Redis uses the AOF (better durability). The hybrid preamble means the first bulk of state loads at RDB speed, not AOF replay speed.
 - RDB snapshots still happen for off-node backup.
-- Durability: at most ~1s of writes lost on an OS crash. Zero data loss requires `appendfsync always` (slow) and replication (below).
+- Durability: `appendfsync everysec` typically leaves about a one-second local persistence window. `appendfsync always` narrows that window, while replication adds another copy, but Redis replication is asynchronous: an acknowledged write can still be lost during failover. These settings reduce different loss windows; they do not provide a zero-loss guarantee.
 
 ### "Nothing" is also a valid choice
 

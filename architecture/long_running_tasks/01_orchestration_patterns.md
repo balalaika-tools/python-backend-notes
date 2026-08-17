@@ -1,6 +1,12 @@
 # Part 1: Orchestration Patterns
 
+> **Who this is for**: Backend engineers choosing how an orchestrator observes completion and
+> recovers when a worker goes silent.
+
 How the orchestrator dispatches work to workers and tracks the lifecycle of each task. This is the most architecturally significant decision — it determines your failure semantics, scalability ceiling, and operational complexity.
+
+> **Key insight**: Successful callbacks close the happy path while an independently owned deadline
+> closes the silence path; neither signal can substitute for the other.
 
 ---
 
@@ -139,34 +145,84 @@ Worker catches an exception during processing
 ### Implementation Skeleton (Worker Side)
 
 ```python
+import logging
 import threading
 import requests
 
-def heartbeat_loop(stop_event: threading.Event, job_id: str, orchestrator_url: str, interval: int = 30):
-    """Background thread that pings the orchestrator."""
+logger = logging.getLogger(__name__)
+
+
+class LeaseLost(RuntimeError):
+    pass
+
+
+def post_checked(url: str, **kwargs) -> requests.Response:
+    response = requests.post(url, timeout=(2, 5), **kwargs)
+    response.raise_for_status()
+    return response
+
+
+def heartbeat_loop(
+    stop_event: threading.Event,
+    lease_lost: threading.Event,
+    job_id: str,
+    orchestrator_url: str,
+    interval: int = 30,
+    max_consecutive_failures: int = 2,
+):
+    """Stop the worker before its 90-second lease can expire silently."""
+    failures = 0
     while not stop_event.is_set():
         try:
-            requests.post(f"{orchestrator_url}/jobs/{job_id}/heartbeat", timeout=5)
-        except Exception:
-            pass  # Best-effort — if orchestrator is down, keep working
+            post_checked(f"{orchestrator_url}/jobs/{job_id}/heartbeat")
+            failures = 0
+        except requests.RequestException:
+            failures += 1
+            logger.exception("heartbeat_failed", extra={"job_id": job_id, "failures": failures})
+            if failures >= max_consecutive_failures:
+                lease_lost.set()
+                return
         stop_event.wait(interval)
+
 
 def run_task(job_id: str, orchestrator_url: str):
     # Per-task stop event — never share one Event across tasks, or finishing
     # one task would silently kill the heartbeats of others in the same process.
     stop_event = threading.Event()
+    lease_lost = threading.Event()
     hb = threading.Thread(
-        target=heartbeat_loop, args=(stop_event, job_id, orchestrator_url, 30), daemon=True
+        target=heartbeat_loop,
+        args=(stop_event, lease_lost, job_id, orchestrator_url, 30),
+        daemon=True,
     )
     hb.start()
 
     try:
-        result = do_actual_work()
-        requests.post(f"{orchestrator_url}/jobs/{job_id}/complete", json={"result": result})
-    except Exception as e:
-        requests.post(f"{orchestrator_url}/jobs/{job_id}/fail", json={"error": str(e)})
+        # Long work must check this event between bounded chunks and abort its
+        # external effects when set. Otherwise a replacement worker can overlap.
+        result = do_actual_work(cancel_event=lease_lost)
+        if lease_lost.is_set():
+            raise LeaseLost("heartbeat lease can no longer be renewed")
+        terminal = ("complete", {"result": result})
+    except Exception:
+        terminal = ("fail", {"error": "worker_failed"})
     finally:
-        stop_event.set()  # Stop heartbeat
+        stop_event.set()
+        hb.join(timeout=6)
+
+    # Persist first. A separate dispatcher retries this idempotently after a
+    # crash; the orchestrator deduplicates by the stable callback ID.
+    callback_id = durable_terminal_outbox.insert(job_id, *terminal)
+    try:
+        post_checked(
+            f"{orchestrator_url}/jobs/{job_id}/{terminal[0]}",
+            json=terminal[1],
+            headers={"Idempotency-Key": callback_id},
+        )
+        durable_terminal_outbox.mark_delivered(callback_id)
+    except requests.RequestException:
+        logger.exception("terminal_callback_pending", extra={"callback_id": callback_id})
+        # Leave the outbox row pending for the retry dispatcher.
 ```
 
 ---

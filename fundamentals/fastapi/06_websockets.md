@@ -1,5 +1,13 @@
 # FastAPI WebSockets
 
+<!-- length-justification: This is the canonical FastAPI WebSocket reference; connection lifecycle, protocol messages, authentication, rooms, heartbeats, and scaling remain together because they share one long-lived ownership boundary. -->
+
+> **Who this is for**: FastAPI engineers implementing and operating long-lived bidirectional
+> connections.
+
+> **Key insight**: A WebSocket is a long-lived bidirectional connection whose ownership and cleanup
+> outlast a normal request handler.
+
 A complete guide to WebSockets in FastAPI — from mental model to production-ready patterns.
 
 For the protocol itself, application message contracts, reconnection, flow control, browser security, and distributed connection architecture, see the **[WebSocket Deep Dive](../../apis/websockets/README.md)**. This chapter focuses on FastAPI implementation patterns.
@@ -471,54 +479,18 @@ WebSocket connections **cannot set custom headers** from browser JavaScript. The
 
 | Strategy | How | Pros | Cons |
 |----------|-----|------|------|
-| Query parameter | `ws://host/ws?token=xxx` | Simple, works everywhere | Token visible in logs/URLs |
+| Query parameter | `ws://host/ws?ticket=xxx` | Works in browsers | Use only a short-lived, one-time ticket; never a bearer JWT |
 | First message | Connect, then send `{"type": "auth", "token": "xxx"}` | Token not in URL | Window between connect and auth |
 | Cookie | Browser sends cookie automatically | Transparent | Requires cookie-based auth |
 | Ticket/one-time token | HTTP endpoint issues short-lived ticket, WS uses it | Secure, token expires | Extra HTTP round trip |
 
-### Query Parameter Authentication (Simple)
+### Bearer JWTs do not belong in the WebSocket URL
 
-```python
-from fastapi import WebSocket, WebSocketException, status
-import jwt
-
-SECRET_KEY = "your-secret-key"
-
-async def authenticate_websocket(websocket: WebSocket) -> dict:
-    token = websocket.query_params.get("token")
-    if not token:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
-
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-        return payload
-    except jwt.InvalidTokenError:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
-
-
-@app.websocket("/ws")
-async def authenticated_endpoint(websocket: WebSocket):
-    user = await authenticate_websocket(websocket)
-    await websocket.accept()
-
-    try:
-        while True:
-            data = await websocket.receive_json()
-            await websocket.send_json({
-                "user": user["sub"],
-                "echo": data,
-            })
-    except WebSocketDisconnect:
-        pass
-```
-
-**Client-side:**
-
-```javascript
-const ws = new WebSocket("ws://localhost:8000/ws?token=eyJhb...");
-```
+URLs routinely appear in access logs, browser history, error telemetry, and proxy traces. A bearer
+JWT in `?token=` turns every one of those systems into a credential store. Exchange the fully
+validated HTTP credential—signature, pinned algorithm, expiry, issuer, audience, and token
+kind—for the one-time ticket below, or use a `Secure`, `HttpOnly` session cookie with origin and
+Cross-Site Request Forgery protections.
 
 ### Ticket-Based Authentication (Production)
 

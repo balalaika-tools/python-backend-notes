@@ -1,8 +1,11 @@
 # Testing
 
-> **Purpose**: Production-grade testing for FastAPI applications — from the mental model to coverage and CI.
+> Production-grade testing for FastAPI applications — from the mental model to coverage and CI.
 
-[![pytest](https://img.shields.io/badge/pytest-8.x-0A9EDC.svg?logo=pytest&logoColor=white)](https://pytest.org)
+> **Key insight**: Test layers buy different kinds of confidence; choose the smallest boundary that
+> can observe the failure, then add broader layers only for risks the smaller one cannot see.
+
+[![pytest](https://img.shields.io/badge/pytest-9.x-0A9EDC.svg?logo=pytest&logoColor=white)](https://pytest.org)
 [![pytest-asyncio](https://img.shields.io/badge/pytest--asyncio-1.x-0A9EDC.svg)](https://pytest-asyncio.readthedocs.io)
 [![httpx](https://img.shields.io/badge/HTTPX-0.27+-009688.svg)](https://www.python-httpx.org)
 [![asgi-lifespan](https://img.shields.io/badge/asgi--lifespan-2.x-4B8BBE.svg)](https://pypi.org/project/asgi-lifespan/)

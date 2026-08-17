@@ -1,6 +1,13 @@
 # Rate Limiting Algorithms
 
+<!-- length-justification: This is the canonical Redis rate-limiting algorithm reference; the atomic scripts, client wrappers, cluster constraints, and multi-dimensional preview remain together so policy semantics can be compared without duplicating implementation. -->
+
+> **Who this is for**: Engineers mapping request policies onto atomic Redis state across processes.
+
 > **Why this lives here**: Rate limiting in a distributed system is fundamentally a Redis problem. Each algorithm is just a pattern of `INCR`, `EXPIRE`, or sorted-set commands — Redis provides the atomic primitives, you choose the key layout. This file covers the four canonical algorithms you'll actually use in production. The application-layer architecture that consumes these primitives lives in [Safe and Scalable API Calls / 09 — Distributed Admission Control](../../fundamentals/fastapi/safe_and_scalable_api_calls/09_distributed_admission_control.md).
+
+> **Key insight**: A rate policy becomes enforceable when each policy dimension maps to named state
+> updated by one atomic decision.
 
 ---
 
@@ -38,6 +45,7 @@ The window number is `floor(now / window_seconds)`. When `now` crosses a window 
 ```python
 import time
 import redis.asyncio as aioredis
+from redis.exceptions import NoScriptError
 from typing import Optional
 
 async def check_fixed_window(
@@ -107,7 +115,11 @@ sorted set: rpm:user:42
 To check: drop entries with score < (now - window), count what's left.
 ```
 
-### Implementation
+### The split implementation explains the formula but is not concurrency-safe
+
+The following split read/check/increment version is an **explanatory excerpt only**. Concurrent
+callers can all observe the same below-limit count and then increment past the cap. Use it to see
+the weighting formula; do not copy it into a service.
 
 ```python
 import time
@@ -214,7 +226,7 @@ async def check_sliding_counter(
     return True
 ```
 
-### Why this is the production default
+### Why the sliding-counter algorithm is a useful default
 
 | Concern | Fixed window | Sliding log | Sliding counter |
 |---------|-------------|-------------|-----------------|
@@ -229,12 +241,14 @@ The hybrid gives you ~95% of the precision of a true sliding window at ~5% of th
 
 ✅ **Bounded burst**: at worst slightly over limit at boundary, never 2×.
 ✅ **Cheap**: two integers per key, two GETs per check.
-✅ **Production-grade**: this is what real edge platforms use.
+✅ **Production-grade when the decision and increment are atomic**: real edge platforms use this
+shape with a single serialized operation.
 
 ❌ **Slightly approximate**: under tail traffic patterns the estimate can be off by a few percent. Not visible to users.
-❌ **Three round-trips** if you split GET and INCR — combine in a single Lua script for one round-trip (see below).
+❌ **Incorrect under concurrency if you split GET and INCR** — multiple callers can be admitted
+from the same stale observation. The Lua form below is the copyable default.
 
-### Atomic Lua version (single round-trip)
+### Copyable production default: atomic Lua (single round-trip)
 
 ```lua
 -- KEYS[1] = current window key
@@ -278,15 +292,22 @@ class SlidingCounter:
         progress = (now % window_seconds) / window_seconds
 
         sha = await self._ensure_loaded()
-        result = await self.r.evalsha(
-            sha,
-            2,
-            f"{key_prefix}:{current_window}",
-            f"{key_prefix}:{previous_window}",
-            limit,
-            window_seconds,
-            progress,
+        # One hash tag forces both keys into the same Redis Cluster slot.
+        slot_tag = f"{{{key_prefix}}}"
+        args = (
+            sha, 2,
+            f"{slot_tag}:{current_window}",
+            f"{slot_tag}:{previous_window}",
+            limit, window_seconds, progress,
         )
+        try:
+            result = await self.r.evalsha(*args)
+        except NoScriptError:
+            # Script caches disappear after restart/failover. Reload once; the
+            # script itself is atomic, so retrying this missing-script failure
+            # cannot duplicate a completed admission.
+            self._sha = await self.r.script_load(SLIDING_COUNTER_LUA)
+            result = await self.r.evalsha(self._sha, *args[1:])
         return result == 1
 ```
 
@@ -375,9 +396,12 @@ class TokenBucket:
     ) -> bool:
         if self._sha is None:
             self._sha = await self.r.script_load(TOKEN_BUCKET_LUA)
-        result = await self.r.evalsha(
-            self._sha, 1, key, capacity, refill_rate, time.time(), cost,
-        )
+        eval_args = (1, key, capacity, refill_rate, time.time(), cost)
+        try:
+            result = await self.r.evalsha(self._sha, *eval_args)
+        except NoScriptError:
+            self._sha = await self.r.script_load(TOKEN_BUCKET_LUA)
+            result = await self.r.evalsha(self._sha, *eval_args)
         return result == 1
 ```
 
@@ -474,17 +498,28 @@ The pattern is one Lua script that checks every dimension and returns a structur
 if redis.call("GET", KEYS[1]) == "1" then return {0, "paused"} end
 if redis.call("GET", KEYS[2]) == "1" then return {0, "banned"} end
 
+-- Contract: only admitted requests consume RPM/inflight quotas. Every later
+-- rejection rolls back the counters already incremented by this invocation.
 local g = redis.call("INCR", KEYS[3])
 if g == 1 then redis.call("EXPIRE", KEYS[3], tonumber(ARGV[5])) end
-if g > tonumber(ARGV[3]) then return {0, "global_rpm"} end
+if g > tonumber(ARGV[3]) then
+  redis.call("DECR", KEYS[3])
+  return {0, "global_rpm"}
+end
 
 local u = redis.call("INCR", KEYS[4])
 if u == 1 then redis.call("EXPIRE", KEYS[4], tonumber(ARGV[5])) end
-if u > tonumber(ARGV[2]) then return {0, "user_rpm"} end
+if u > tonumber(ARGV[2]) then
+  redis.call("DECR", KEYS[4])
+  redis.call("DECR", KEYS[3])
+  return {0, "user_rpm"}
+end
 
 local i = redis.call("INCR", KEYS[5])
 if i > tonumber(ARGV[4]) then
   redis.call("DECR", KEYS[5])
+  redis.call("DECR", KEYS[4])
+  redis.call("DECR", KEYS[3])
   return {0, "inflight"}
 end
 

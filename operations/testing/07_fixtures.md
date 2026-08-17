@@ -1,6 +1,30 @@
 # 07 — Fixture Patterns
 
-> **Purpose**: Share setup between tests without coupling them. Choose the right scope, build factory fixtures, and write `conftest.py` once instead of everywhere.
+> **Who this is for**: pytest users who can write a test and now need reusable setup with explicit
+> lifetime and cleanup.
+
+## A fixture owns one resource lifetime
+
+```python
+import pytest
+
+@pytest.fixture
+def opened_file(tmp_path):
+    handle = (tmp_path / "result.txt").open("w+")
+    try:
+        yield handle
+    finally:
+        handle.close()
+
+def test_write(opened_file):
+    opened_file.write("ok")
+    assert not opened_file.closed
+```
+
+The test passes while the handle is open; after the test, the fixture's `finally` closes it even on
+failure. Scope changes how long that ownership lasts, not merely how often setup text runs.
+
+> **Key insight**: A fixture is a lifetime owner with dependency ordering, not just a reusable value.
 
 ---
 

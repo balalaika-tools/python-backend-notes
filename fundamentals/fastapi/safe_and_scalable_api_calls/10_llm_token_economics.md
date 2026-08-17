@@ -1,6 +1,12 @@
 # Part 10: LLM Token Economics — Reserve, Retry, Reconcile
 
+> **Who this is for**: Engineers enforcing token-denominated tenant quotas when actual provider usage
+> is known only after an attempt.
+
 > **Principle**: For LLM calls the unit of cost is **tokens**, not requests. You only know the real token cost *after* the response. Quotas must be enforced *before* the call admits. Resolving that tension is what this file is about.
+
+> **Key insight**: Token admission reserves an upper bound before work and reconciles actual billable
+> usage afterward.
 
 > **Prerequisites**:
 > - [Part 9 — Distributed Admission Control](09_distributed_admission_control.md) for the Redis admission pattern.
@@ -49,7 +55,8 @@ The fix is the **Reserve → Retry → Reconcile** pattern.
 │ 4. RECONCILE  exactly once, in a finally block:          │
 │   on success:    diff = estimated - actual               │
 │                  DECRBY diff (refund overestimate)       │
-│   on failure:    DECRBY estimated_cost (full refund)     │
+│   unknown cost:  retain an explicit failure reservation  │
+│   known cost:    reconcile to provider-reported usage    │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -135,11 +142,13 @@ async def reserve_tokens(
     user_id: str,
     estimated_tokens: int,
     daily_limit: int,
+    unknown_failure_charge_tokens: int | None = None,
 ):
     """
     Reserve estimated_tokens against the user's daily quota.
-    On exit, the caller MUST set actual_tokens via the yielded callback,
-    or the full reservation is refunded (treated as failure).
+    On exit, the caller reports provider usage when available. If usage is
+    unknown, retain an explicit conservative failure charge; by default the
+    entire estimate remains charged.
     """
     key = f"user:{user_id}:tpd:{today_key()}"
 
@@ -165,24 +174,31 @@ async def reserve_tokens(
         )
 
     # 2. CALLER's WORK happens here. They tell us actual via the callback.
-    state: dict = {"actual": None, "succeeded": False}
+    state: dict = {"actual": None}
 
     def report(actual_tokens: int) -> None:
         state["actual"] = actual_tokens
-        state["succeeded"] = True
 
     try:
         yield report
     finally:
         # 3. RECONCILE — exactly once.
-        if state["succeeded"] and state["actual"] is not None:
+        if state["actual"] is not None:
             diff = estimated_tokens - state["actual"]
             if diff != 0:
                 # diff > 0 → refund unused; diff < 0 → charge extra
                 await r.decrby(key, diff)
         else:
-            # Failure (exception or no report) → refund full reservation
-            await r.decrby(key, estimated_tokens)
+            # A timeout does not prove the provider did no work. Retain a
+            # conservative charge instead of making failure a quota bypass.
+            failure_charge = (
+                estimated_tokens
+                if unknown_failure_charge_tokens is None
+                else min(estimated_tokens, max(0, unknown_failure_charge_tokens))
+            )
+            refund = estimated_tokens - failure_charge
+            if refund:
+                await r.decrby(key, refund)
 ```
 
 ### Usage
@@ -199,7 +215,10 @@ async def chat(request: ChatRequest, user=Depends(auth)):
         return response
 ```
 
-If `call_llm_with_retry` raises, `report` is never called → the `finally` block refunds the full reservation. If it succeeds, `report` records actual usage → `finally` refunds only the difference.
+If `call_llm_with_retry` raises and the provider exposes usage for the failed attempts, report that
+aggregate usage before propagating the error. If cost is unknowable, the default retains the full
+estimate; a product may configure a smaller explicit failure charge, but never blindly refund an
+unknown-cost attempt. On success, `report` records actual usage and refunds only the difference.
 
 ---
 
@@ -253,7 +272,9 @@ async def call_llm_with_retry(request, redis, provider="openai"):
     raise last_error
 ```
 
-The user-side `reserve_tokens` context manager wraps this. It debits the user once with the estimate, then reconciles once with the *final* `usage.total_tokens` of whichever attempt succeeded. If they all fail, full refund.
+The user-side `reserve_tokens` context manager wraps this. It debits the user once with the estimate,
+then reconciles once with aggregate provider-reported usage. When every attempt fails and usage is
+unknown, it retains the configured conservative failure charge rather than granting a quota bypass.
 
 ---
 
@@ -384,7 +405,7 @@ Pick one and document it. The reconciliation step uses whichever computed number
 | Per attempt | `provider:{name}:rpm:{window}` | Each network call | `INCR` |
 | Per attempt | `provider:{name}:tpm:{window}` | After each call returns usage | `INCRBY actual_or_partial` |
 | Reconcile (success) | `user:{id}:tpd:{date}` | Once at end | `DECRBY (estimated - actual)` |
-| Reconcile (failure) | `user:{id}:tpd:{date}` | Once at end | `DECRBY estimated` (full refund) |
+| Reconcile (unknown-cost failure) | `user:{id}:tpd:{date}` | Once at end | Retain configured failure charge; refund only the remainder |
 
 ### The mental model
 

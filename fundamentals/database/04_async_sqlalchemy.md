@@ -1,5 +1,13 @@
 # Async Database Access — SQLAlchemy & asyncpg
 
+<!-- length-justification: This is the canonical async database implementation reference, keeping engine/session ownership, loading, transactions, FastAPI integration, and the raw-driver escape hatch together so hidden-I/O constraints remain consistent. -->
+
+> **Who this is for**: Backend engineers implementing explicit async database I/O with SQLAlchemy
+> sessions or asyncpg.
+
+> **Key insight**: Async sessions make hidden I/O invalid, so loading and transaction boundaries
+> must be explicit.
+
 > **Core idea**: SQLAlchemy async is not "sync SQLAlchemy with `await` sprinkled in." It changes how you think about sessions, loading, and object state. For raw performance, asyncpg gives you direct access to PostgreSQL's binary protocol.
 
 ---
@@ -1111,12 +1119,12 @@ async def create_user(data: UserCreate, pool: asyncpg.Pool = Depends(get_pool)):
 asyncpg uses `$1`, `$2`, ... for parameters (not `%s` or `?`):
 
 ```python
-# ❌ WRONG — SQL injection vulnerability
-await pool.fetch(f"SELECT * FROM users WHERE email = '{email}'")
-
 # ✅ CORRECT — parameterized query
 await pool.fetch("SELECT * FROM users WHERE email = $1", email)
 ```
+
+If `email` were interpolated, input such as `x' OR TRUE --` would change the query's structure.
+With `$1`, asyncpg sends that input as data, so it cannot become an SQL operator.
 
 #### Transactions
 

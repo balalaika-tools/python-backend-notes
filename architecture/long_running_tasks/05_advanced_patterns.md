@@ -1,6 +1,12 @@
 # Advanced Patterns: Sagas, Outbox, Delivery Semantics, Progress, Tracing
 
+> **Who this is for**: Engineers hardening long-running work across transaction boundaries,
+> cancellation, resumability, and tracing.
+
 > Patterns that come up once you're past "send a message, hope it works." Each of these addresses a specific failure mode you will eventually hit in production and can't fix with retries alone.
+
+> **Key insight**: Every cross-system guarantee ends at a transaction boundary, so recovery depends
+> on an explicit durable fact at each boundary.
 
 ---
 
@@ -69,8 +75,13 @@ Write the event into the **same database transaction** as the business data, to 
 ```sql
 BEGIN;
 INSERT INTO orders (id, total, ...) VALUES (...);
-INSERT INTO outbox (id, aggregate_id, event_type, payload, status)
-     VALUES (gen_random_uuid(), order_id, 'OrderCreated', '{...}', 'pending');
+-- Allocate this sequence under the aggregate row lock in the same transaction.
+UPDATE orders SET event_sequence = event_sequence + 1
+ WHERE id = order_id
+ RETURNING event_sequence;
+INSERT INTO outbox (id, aggregate_id, aggregate_sequence, event_type, payload, status)
+     VALUES (gen_random_uuid(), order_id, event_sequence,
+             'OrderCreated', '{...}', 'pending');
 COMMIT;
 ```
 
@@ -78,31 +89,67 @@ A publisher process / worker:
 
 ```python
 async def outbox_publisher():
+    publisher_id = stable_process_id()
     while True:
-        # Read batch of unpublished events
-        events = await db.fetch(
-            "SELECT id, event_type, payload FROM outbox "
-            "WHERE status = 'pending' ORDER BY id LIMIT 100 FOR UPDATE SKIP LOCKED"
-        )
+        # Claim durably in a short transaction; row locks alone disappear as
+        # soon as the SELECT's transaction ends.
+        async with db.transaction():
+            await db.execute(
+                "UPDATE outbox SET status='pending', claim_owner=NULL "
+                "WHERE status='publishing' AND claim_expires_at < now()"
+            )
+            events = await db.fetch(
+                """
+                WITH candidates AS (
+                    SELECT o.id
+                      FROM outbox AS o
+                     WHERE o.status = 'pending'
+                       AND NOT EXISTS (
+                           SELECT 1 FROM outbox AS earlier
+                            WHERE earlier.aggregate_id = o.aggregate_id
+                              AND earlier.status IN ('pending', 'publishing')
+                              AND earlier.aggregate_sequence < o.aggregate_sequence
+                       )
+                     ORDER BY o.aggregate_id, o.aggregate_sequence
+                     LIMIT 100 FOR UPDATE OF o SKIP LOCKED
+                )
+                UPDATE outbox AS o
+                   SET status='publishing', claim_owner=$1,
+                       claim_expires_at=now() + interval '30 seconds'
+                  FROM candidates AS c
+                 WHERE o.id = c.id
+                RETURNING o.id, o.aggregate_id, o.aggregate_sequence,
+                          o.event_type, o.payload
+                """,
+                publisher_id,
+            )
         for e in events:
             try:
-                await broker.publish(e["event_type"], e["payload"])
+                # The aggregate key keeps one aggregate on one ordered broker
+                # partition; ordering across different aggregates is irrelevant.
+                await broker.publish(
+                    e["event_type"], e["payload"], key=e["aggregate_id"]
+                )
                 await db.execute(
-                    "UPDATE outbox SET status='published', published_at=now() WHERE id=$1",
-                    e["id"],
+                    "UPDATE outbox SET status='published', published_at=now() "
+                    "WHERE id=$1 AND status='publishing' AND claim_owner=$2",
+                    e["id"], publisher_id,
                 )
             except Exception:
                 log.exception("publish_failed", event_id=e["id"])
-                # leave as pending; next pass will retry
+                # Leave the durable claim to expire; the next claimant retries.
 
         if not events:
             await asyncio.sleep(1)
 ```
 
 Key details:
-- `FOR UPDATE SKIP LOCKED` lets multiple publishers run without fighting for the same rows.
+- `FOR UPDATE SKIP LOCKED` selects distinct rows, while the committed
+  `publishing` owner/lease keeps them claimed after row locks are released.
 - **At-least-once delivery** — the publisher can crash between publishing and updating status, causing a republish. Consumers must be idempotent.
-- **Ordering** — within one aggregate (one order), events stay ordered. Across aggregates, ordering is a design choice.
+- **Ordering** — the monotonic `aggregate_sequence`, earliest-pending query, and broker partition key
+  preserve order within one aggregate. Random UUID order does not. Multiple aggregates still publish
+  concurrently, and no global ordering is promised.
 - **Garbage collection** — published events shouldn't live forever. A separate job deletes rows older than N days, or uses table partitioning by date.
 
 ### Outbox + CDC (Change Data Capture)
@@ -132,9 +179,12 @@ What vendors mean by "exactly-once":
 
 ### The practical rule
 
-**Target at-least-once delivery + idempotent consumers = effectively exactly-once.**
+**Target at-least-once delivery plus an effect that is atomically idempotent.**
 
-The idempotent consumer is the key. Your handler must survive being called with the same message twice. Patterns:
+Checking a dedup table and then performing the effect in a separate commit is still unsafe: a crash
+after the effect but before the dedup insert repeats the effect. Put the dedup record and local
+business write in one database transaction, use a conditional write, or send a stable idempotency
+key to an external provider that stores the original outcome. Patterns:
 
 - **Dedup table**: record processed message IDs; reject duplicates. Matches the idempotency-key pattern in [`safe_and_scalable_api_calls/11_idempotency.md`](../../fundamentals/fastapi/safe_and_scalable_api_calls/11_idempotency.md).
 - **Upsert, not insert**: if the outcome is deterministic given the input, use `INSERT ... ON CONFLICT DO UPDATE` or equivalent.
@@ -199,9 +249,12 @@ def batch_job(task_id: str, input_ids: list[int]):
 
     for i in range(start, len(input_ids)):
         result = process(input_ids[i])
-        save_result(input_ids[i], result)
+        # The deterministic key makes a replay an upsert of the same result,
+        # not a second side effect. Prefer one DB transaction for this upsert
+        # and the checkpoint when both live in the same store.
+        save_result_once(result_key=f"{task_id}:{input_ids[i]}", result=result)
         if i % 100 == 0:
-            redis.hset(f"task:{task_id}", "resume_from", i + 1)
+            advance_checkpoint_if_results_exist(task_id, resume_from=i + 1)
 ```
 
 **Sub-task decomposition.** Break the job into many small messages, each idempotent. The broker's at-least-once delivery + your idempotent consumer makes resume automatic — any sub-task the worker didn't ack gets redelivered. This is usually the better pattern when the work decomposes cleanly.

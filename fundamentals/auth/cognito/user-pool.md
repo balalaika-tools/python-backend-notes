@@ -1,5 +1,13 @@
 # User Pool — Deep Dive
 
+<!-- length-justification: This is the canonical Cognito User Pool configuration reference; pool policy, app-client policy, user operations, and triggers remain together because their compatibility constraints are reviewed as one deployed directory contract. -->
+
+> **Who this is for**: Backend engineers configuring one Cognito User Pool and its application-client
+> policies.
+
+> **Key insight**: App clients are policy profiles over one shared user directory, not separate user
+> stores.
+
 ## Creating a User Pool
 
 A User Pool is configured once and rarely changed (some settings are immutable after creation — read the notes below carefully).
@@ -89,9 +97,12 @@ pool_id = response['UserPool']['Id']
 ### Immutable Settings (decide before creating)
 - `UsernameAttributes` or `AliasAttributes` — how users sign in
 - `UsernameConfiguration.CaseSensitive`
-- `MfaConfiguration`
 - Required attributes in `Schema`
 - Custom attributes can be added later but **never removed**
+
+`MfaConfiguration` is operational policy, not an immutable schema choice: Cognito exposes it
+through `UpdateUserPool`. Changing it can still disrupt sign-in flows, so stage and test the
+change, but do not treat pool recreation as required.
 
 ---
 

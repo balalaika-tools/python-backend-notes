@@ -1,6 +1,23 @@
 # 02 — Setup
 
-> **Purpose**: Install the testing toolchain, configure pytest, and lay out a project structure that scales.
+> **Who this is for**: Python backend engineers creating a pytest suite from an empty `tests/`
+> directory.
+
+## Quick proof: one test is discovered and passes
+
+After `pip install pytest`, save this as `tests/test_setup.py`:
+
+```python
+def test_pytest_is_running():
+    assert 2 + 2 == 4
+```
+
+Run `pytest -q tests/test_setup.py`. The success signal is `1 passed`; `collected 0 items` means the
+file or function naming convention is wrong. The rest of this note adds async support, layout,
+markers, and the commands useful once the baseline works.
+
+> **Key insight**: A test toolchain is installed only when discovery, execution, and exit status all
+> work in the same environment that will run CI.
 
 ---
 
@@ -86,6 +103,10 @@ markers = [
 ---
 
 ## Running Tests
+
+Start with three commands: `pytest` for the whole suite, `pytest -x` for a short feedback loop, and
+`pytest path/to/test.py::test_name` while working on one failure. The remaining selectors are
+lookup tools for larger suites.
 
 ```bash
 pytest                              # all tests, default output

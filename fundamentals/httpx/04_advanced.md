@@ -1,6 +1,12 @@
 # HTTPX Advanced Features
 
+> **Who this is for**: HTTPX users adding streaming, HTTP/2, custom transport, TLS, or advanced
+> error behavior after the client-lifecycle baseline.
+
 > **Topics**: HTTP/2, streaming, retries, DNS, and error handling.
+
+> **Key insight**: Advanced HTTPX behavior composes at the client/transport boundary while
+> preserving verification, ownership, and cleanup invariants.
 
 ---
 
@@ -416,13 +422,11 @@ client = httpx.AsyncClient(verify=ctx)
 
 Environment override without changing code: `SSL_CERT_FILE=/path/to/bundle.pem` (read by OpenSSL/`certifi`).
 
-### Disabling verification — only for debugging
+### Do not disable verification
 
-```python
-client = httpx.AsyncClient(verify=False)   # NEVER in production
-```
-
-This disables certificate verification entirely — you're vulnerable to MITM. If the problem is "my internal CA isn't trusted," fix it with the custom CA bundle above; don't reach for `verify=False`.
+Passing the literal `verify=False` disables certificate verification entirely and makes a
+man-in-the-middle attack possible. Keep that insecure shape out of executable examples. If the
+problem is "my internal CA isn't trusted," use the verified `SSLContext` above.
 
 ### Mutual TLS (client certificates)
 

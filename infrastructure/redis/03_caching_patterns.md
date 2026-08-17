@@ -1,6 +1,14 @@
 # Caching Patterns
 
+<!-- length-justification: This is the canonical cache-correctness reference; baseline read/write strategies, invalidation, stampede control, and production failure traces remain together because they all modify one version-ordering contract. -->
+
+> **Who this is for**: Backend engineers adding Redis caching without weakening the source-of-truth
+> consistency contract.
+
 > **Why cache?** A database query that takes 50ms under load becomes 0.5ms from Redis. Multiply that by thousands of requests per second and caching is the difference between a responsive app and one that buckles. Caching reduces latency, drops database load, and cuts infrastructure costs. The hard part is not caching itself — it is keeping the cache correct.
+
+> **Key insight**: Cache correctness is a version-ordering problem, not merely a choice of expiration
+> duration.
 
 ---
 
@@ -110,7 +118,8 @@ async def get_product(product_id: int, include_reviews: bool = False) -> dict:
 
 ### 2. Write-Through
 
-Every write goes to **both** cache and DB. Cache is always fresh.
+Every write goes to **both** the database and cache. That reduces the usual stale window, but the
+two stores do not become one atomic system merely because the application writes both.
 
 ```
 Write path:
@@ -142,8 +151,17 @@ async def get_user(r: aioredis.Redis, user_id: str) -> dict:
     return user
 ```
 
-**Pros:** Cache is always fresh. No stale reads.
-**Cons:** Every write is slower (cache + DB). Caches data that may never be read. More complex write path.
+If the database update commits and the cache write fails, readers can still see the old cached
+value. Two concurrent writers can also commit in one order and populate the cache in the opposite
+order. The simple function therefore offers **best-effort freshness**, not "always fresh."
+
+For a stronger contract, put a monotonic row version in the database and cache payload. Update the
+cache only when the incoming version is newer, or write an outbox event in the same database
+transaction and let an idempotent consumer invalidate by version.
+
+**Pros:** Usually serves the newest value without waiting for a cache miss.
+**Cons:** Every write is slower, partial failure needs repair, concurrent writers need versioning,
+and the cache may hold data that is never read.
 
 ### 3. Write-Behind (Write-Back)
 
@@ -157,6 +175,7 @@ Write path:
 
 ```python
 import asyncio
+import secrets
 
 class WriteBehindCache:
     """
@@ -430,7 +449,8 @@ async def get_with_lock(
 
     # Try to acquire lock
     lock_key = f"lock:{key}"
-    acquired = await r.set(lock_key, "1", nx=True, ex=lock_ttl)
+    owner_token = secrets.token_urlsafe(24)
+    acquired = await r.set(lock_key, owner_token, nx=True, ex=lock_ttl)
 
     if acquired:
         # We won the lock — fetch and populate
@@ -439,7 +459,17 @@ async def get_with_lock(
             await r.setex(key, ttl, json.dumps(value))
             return value
         finally:
-            await r.delete(lock_key)
+            await r.eval(
+                """
+                if redis.call('get', KEYS[1]) == ARGV[1] then
+                    return redis.call('del', KEYS[1])
+                end
+                return 0
+                """,
+                1,
+                lock_key,
+                owner_token,
+            )
     else:
         # Someone else is fetching — wait briefly and retry
         for _ in range(50):  # max 5 seconds (50 * 0.1)
@@ -566,7 +596,8 @@ async def update_user(r: aioredis.Redis, user_id: str, data: dict):
     )
 ```
 
-**Why delete, not update?** Deleting is simpler and avoids race conditions. If two writes happen concurrently:
+**Why delete, not update?** Deleting avoids the direct last-cache-write-wins race, but it does not
+eliminate every stale repopulation race. If two writers are the only actors:
 
 ```
 With SET (update cache): race condition
@@ -575,12 +606,25 @@ Thread B: DB update (name="Bob")
 Thread B: SET cache (name="Bob")
 Thread A: SET cache (name="Alice")  <-- STALE! DB has "Bob" but cache has "Alice"
 
-With DELETE: safe
+With DELETE: safer for the writer/writer race
 Thread A: DB update (name="Alice")
 Thread B: DB update (name="Bob")
 Thread A: DELETE cache
 Thread B: DELETE cache  <-- cache is empty, next read gets fresh "Bob" from DB
 ```
+
+A reader can still lose a race to the invalidation:
+
+```
+Reader: cache MISS; reads old "Alice" from DB
+Writer: commits "Bob"; DELETE cache
+Reader: SET cache to old "Alice"  <-- stale value reappears after the delete
+```
+
+Choose the guarantee explicitly: accept bounded staleness with a short TTL, store a database
+version and reject older cache fills, or issue a delayed second invalidation after the longest
+expected read/fill interval. A transactional outbox plus versioned invalidation is the usual
+choice when stale data would violate a business rule.
 
 ### Event-Driven with Pub/Sub
 

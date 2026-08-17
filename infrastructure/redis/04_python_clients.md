@@ -1,6 +1,11 @@
 # Python Redis Clients
 
+<!-- length-justification: This is the canonical redis-py client reference; sync/async clients, pooling, pipelines, transactions, serialization, FastAPI lifetime, and retry configuration remain together because they describe one logical client's physical connection behavior. -->
+
 > **Who this is for**: Engineers setting up Redis in a Python application -- choosing the right client, configuring connection pools, using pipelines, and integrating with FastAPI.
+
+> **Key insight**: One logical Redis client manages a bounded pool of physical connections; creating
+> clients per operation defeats that ownership boundary.
 
 ---
 
@@ -19,7 +24,7 @@ The Python Redis ecosystem is simpler than you might expect:
 pip install redis
 ```
 
-> **Version note**: the examples here target `redis-py` 5.x, but the API shown (`redis.asyncio`, `from_url`, `aclose`, pipelines, Sentinel/Cluster) is unchanged through `redis-py` 8.x. The one behavioral change to know about: **`redis-py` 8.0 made RESP3 the default protocol** (5.x defaulted to RESP2). RESP3 changes how a few replies are typed (notably some commands return maps/`dict` instead of flat lists). If you upgrade and a parser breaks, pin the old behavior with `protocol=2` on the client, or update your reply handling.
+> **Version note**: the examples here target `redis-py` 5.x, but the API shown (`redis.asyncio`, `from_url`, `aclose`, pipelines, Sentinel/Cluster) is unchanged through `redis-py` 8.x. Redis Serialization Protocol version 3 (**RESP3**) is now the default wire protocol, while redis-py preserves legacy RESP2-compatible Python response shapes by default. Opt into native RESP3 shapes with `legacy_responses=False`; test reply parsing before doing so rather than assuming the wire-version change alone alters every return type.
 
 ---
 
@@ -29,6 +34,7 @@ The synchronous client. Good for scripts, CLI tools, background workers, and any
 
 ```python
 import redis
+import os
 
 r = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
 
@@ -42,10 +48,21 @@ r.exists("key")     # 0
 r = redis.Redis.from_url("redis://localhost:6379/0", decode_responses=True)
 
 # With authentication
-r = redis.Redis(host="redis.example.com", port=6379, password="secret", decode_responses=True)
+r = redis.Redis(
+    host="redis.example.com",
+    port=6379,
+    password=os.environ["REDIS_PASSWORD"],
+    decode_responses=True,
+)
 
 # With TLS (e.g., AWS ElastiCache, Redis Cloud)
-r = redis.Redis(host="redis.example.com", port=6380, password="secret", ssl=True, decode_responses=True)
+r = redis.Redis(
+    host="redis.example.com",
+    port=6380,
+    password=os.environ["REDIS_PASSWORD"],
+    ssl=True,
+    decode_responses=True,
+)
 ```
 
 ### Type Mapping
@@ -70,6 +87,7 @@ Same API, but with `await`. Use this in FastAPI, aiohttp, or any asyncio applica
 
 ```python
 import redis.asyncio as aioredis
+import os
 
 r = aioredis.Redis(host="localhost", port=6379, decode_responses=True)
 
@@ -205,7 +223,7 @@ pipe.get("a")
 results = pipe.execute()  # [True, True, "1"]
 ```
 
-> **`transaction=False`** means commands are batched but not atomic. Use this for pure performance gains. Set `transaction=True` when you need atomicity (MULTI/EXEC).
+> **`transaction=False`** means commands are batched but not atomic. Use this for pure performance gains. Set `transaction=True` when queued commands must execute without another client's commands interleaving. Redis `MULTI`/`EXEC` names the queue-and-execute transaction protocol; it does not provide SQL-style rollback.
 
 ### How Much Faster?
 
@@ -223,13 +241,29 @@ results = pipe.execute()  # [True, True, "1"]
 
 ### Basic Transaction
 
-A pipeline with `transaction=True` wraps commands in `MULTI/EXEC`. Either all commands execute or none do.
+A pipeline with `transaction=True` wraps commands in `MULTI`/`EXEC`. After `EXEC`, queued commands
+run as one uninterrupted sequence. A runtime error affects that command but does not roll back the
+others.
 
 ```python
 async with r.pipeline(transaction=True) as pipe:
     pipe.set("balance:alice", 50)
     pipe.set("balance:bob", 150)
-    results = await pipe.execute()  # Atomic: both set or neither
+    results = await pipe.execute()  # no other client interleaves between these SETs
+```
+
+To inspect runtime-error behavior rather than raising on the first error:
+
+```python
+await r.set("not-an-integer", "text")
+async with r.pipeline(transaction=True) as pipe:
+    pipe.set("before", "written")
+    pipe.incr("not-an-integer")
+    pipe.set("after", "also-written")
+    results = await pipe.execute(raise_on_error=False)
+
+# [True, ResponseError(...), True]; both SETs remain committed.
+print(results)
 ```
 
 ### Optimistic Locking with WATCH
@@ -278,7 +312,7 @@ The `redis-py` API puts both behind the same `pipeline()` method, but the semant
 | | Pipeline (`transaction=False`) | Transaction / MULTI/EXEC (`transaction=True`) |
 |---|---|---|
 | What it does | Batches commands in one TCP round-trip | Batches **and** executes atomically on the server |
-| Atomicity | None — a server crash mid-batch leaves partial state | All-or-nothing — either every command runs or none |
+| Atomicity | None — clients may interleave | Queued commands execute without interleaving; runtime errors do not roll back other commands |
 | Isolation | None — other clients can interleave writes | Commands run with no other client in between |
 | Error behavior | Failed commands don't stop later ones | Syntax errors abort before EXEC; runtime errors (e.g. `INCR` on a string) leave already-queued commands to run; Redis returns the error in the result array |
 | Use for | Pure throughput (one round-trip for N writes) | Read-modify-write, balance transfers, linked-key updates |
@@ -407,6 +441,8 @@ async def safe_get(r: aioredis.Redis, key: str, default=None):
 
 ```python
 from redis.backoff import ExponentialBackoff
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 from redis.retry import Retry
 
 retry = Retry(ExponentialBackoff(), retries=3)
@@ -500,14 +536,14 @@ from redis.retry import Retry
 r = aioredis.Redis(
     host="redis.example.com",
     port=6379,
-    password="secret",
+    password=os.environ["REDIS_PASSWORD"],
     db=0,
     decode_responses=True,
     max_connections=20,
     socket_timeout=5,
     socket_connect_timeout=5,
     retry=Retry(ExponentialBackoff(), retries=3),
-    retry_on_error=[ConnectionError, TimeoutError],
+    retry_on_error=[RedisConnectionError, RedisTimeoutError],
     ssl=True,  # Enable for cloud-hosted Redis
 )
 ```

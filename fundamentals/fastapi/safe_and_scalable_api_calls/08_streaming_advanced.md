@@ -1,6 +1,14 @@
 # Part 8: Advanced Streaming Patterns
 
+<!-- length-justification: This deep-dive is the canonical owner for multi-provider stream coordination; fan-out, winner cleanup, aggregation, admission, and the composed endpoint remain together because resource ownership crosses each mechanism. -->
+
+> **Who this is for**: Engineers coordinating multiple long-lived upstream streams after basic
+> streaming and cancellation are understood.
+
 > **Principle**: Streaming complexity grows with fan-out, aggregation, and failure handling.
+
+> **Key insight**: Advanced stream coordination requires explicit ownership of every response,
+> task, cursor, and client-visible error.
 
 ---
 
@@ -30,45 +38,39 @@ async def stream_first_responder(
     Cancel others once we commit to one.
     """
     
-    streams = {}
-    
-    # Start all streams
-    for provider in providers:
-        streams[provider] = asyncio.create_task(
-            get_first_chunk(provider, payload)
-        )
-    
-    # Wait for first successful response
-    winner = None
+    tasks = [
+        asyncio.create_task(get_first_chunk(provider, payload))
+        for provider in providers
+    ]
     winner_stream = None
-    
-    done, pending = await asyncio.wait(
-        streams.values(),
-        return_when=asyncio.FIRST_COMPLETED,
-    )
-    
-    for task in done:
-        try:
-            provider, first_chunk, stream = task.result()
-            winner = provider
-            winner_stream = stream
-            
-            # Yield first chunk
+
+    try:
+        # A completed failure is not a winner; keep waiting until one provider
+        # yields a first chunk or every provider fails.
+        for completed in asyncio.as_completed(tasks):
+            try:
+                _, first_chunk, winner_stream = await completed
+            except Exception:
+                continue
+
             yield first_chunk
-            break
-        except Exception:
-            continue
-    
-    # Cancel losers
-    for task in pending:
-        task.cancel()
-    
-    if winner_stream is None:
-        raise Exception("All providers failed")
-    
-    # Continue with winner's stream
-    async for chunk in winner_stream:
-        yield chunk
+            async for chunk in winner_stream:
+                yield chunk
+            return
+
+        raise RuntimeError("all providers failed before producing a chunk")
+    finally:
+        # Multiple providers can finish in the same event-loop turn. Canceling
+        # only pending tasks would leak the already-open streams of completed
+        # nonwinners, so collect every result and close every stream.
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for result in results:
+            if isinstance(result, tuple):
+                _, _, opened_stream = result
+                await opened_stream.aclose()
 
 
 async def get_first_chunk(provider: str, payload: dict):
@@ -633,6 +635,7 @@ async def stream_with_admission(payload: dict) -> AsyncIterator[str]:
 ```python
 import asyncio
 import json
+import logging
 import time
 import httpx
 from contextlib import asynccontextmanager
@@ -641,6 +644,7 @@ from fastapi.responses import StreamingResponse
 from aiolimiter import AsyncLimiter
 from typing import AsyncIterator
 
+logger = logging.getLogger(__name__)
 
 # === GLOBAL STATE ===
 llm_sem = asyncio.Semaphore(100)  # Higher for streaming
@@ -713,8 +717,10 @@ async def production_stream(
     except CircuitBreakerOpen:
         yield f"data: {json.dumps({'error': 'service unavailable'})}\n\n"
     
-    except Exception as e:
-        yield f"data: {json.dumps({'error': str(e)})}\n\n"
+    except Exception:
+        request_id = request.headers.get("x-request-id", "unavailable")
+        logger.exception("stream_failed", extra={"request_id": request_id})
+        yield f"data: {json.dumps({'error': 'internal_error', 'request_id': request_id})}\n\n"
     
     finally:
         # 7. Release admission and record metrics

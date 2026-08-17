@@ -1,5 +1,7 @@
 # Dramatiq — Distributed Task Processing
 
+<!-- length-justification: This is the canonical Dramatiq runtime reference; broker setup, actor delivery, middleware, retries, composition, rate limiting, shutdown, and testing remain together so framework behavior is owned here rather than duplicated by the FastAPI integration note. -->
+
 > **Who this is for**: Python engineers evaluating Dramatiq for broker-backed task delivery and synchronous worker execution.
 
 Before reading this, understand **[queue and worker architectures](../../04_queue_and_worker_architectures.md)** and **[the reliability deep dives](../../reliability/README.md)**.
@@ -110,10 +112,15 @@ dramatiq.set_broker(broker)
 
 ```python
 from dramatiq.brokers.rabbitmq import RabbitmqBroker
+import os
 
-broker = RabbitmqBroker(url="amqp://guest:guest@localhost:5672/")
+broker = RabbitmqBroker(url=os.environ["DRAMATIQ_RABBITMQ_URL"])
 dramatiq.set_broker(broker)
 ```
+
+For local development, create a dedicated application user and export a URL such as
+`amqp://dramatiq-dev:<local-password>@localhost:5672/`. Do not rely on RabbitMQ's live
+`guest:guest` default in application code.
 
 ⚠️ **Forgetting `dramatiq.set_broker()` does not raise.** `get_broker()` builds a default broker on first use — it tries RabbitMQ first and falls back to Redis at `localhost:6379/0` when pika is not installed, which is exactly the case for a `dramatiq[redis]` install. So messages go *somewhere plausible* instead of erroring. The tell: messages are absent from the broker URL you configured and present at the default coordinates. On a developer laptop where both are the same Redis, this can pass every local test and diverge in every deployed environment.
 

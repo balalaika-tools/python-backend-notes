@@ -1,5 +1,13 @@
 # Alembic — Database Migrations
 
+<!-- length-justification: This canonical migration reference keeps schema/data transitions, branching, multi-database operation, and deployment safety together because each is reviewed as part of one immutable migration history. -->
+
+> **Who this is for**: SQLAlchemy users designing reviewable database transitions from development
+> through production rollout.
+
+> **Key insight**: Migrations are reviewed, immutable transition programs rather than authoritative
+> diffs from current models.
+
 Everything about Alembic: setup, autogenerate, data migrations, branching, multi-database, CI/CD integration, and production deployment strategies.
 
 > Files `03` and `04` cover basic Alembic setup in the context of SQLAlchemy sync and async. This file is the deep-dive — the stuff you need when your team grows and your schema gets complex.
@@ -312,8 +320,8 @@ Alembic autogenerate won't detect this.
 from alembic import op
 
 def upgrade() -> None:
-    # PostgreSQL 10+: ALTER TYPE ... ADD VALUE is not transactional
-    # Must run outside of a transaction block
+    # PostgreSQL allows this in a transaction, but the new value cannot be
+    # referenced until that transaction commits.
     op.execute("ALTER TYPE user_tier ADD VALUE IF NOT EXISTS 'enterprise'")
 
 
@@ -323,9 +331,12 @@ def downgrade() -> None:
     pass
 ```
 
-> **Gotcha:** `ALTER TYPE ... ADD VALUE` cannot run inside a transaction in PostgreSQL. If Alembic wraps migrations in a transaction (the default), you need to break it out.
+> **Gotcha:** Current PostgreSQL permits `ALTER TYPE ... ADD VALUE` inside a transaction, but the
+> new enum value cannot be used until commit. Split a later statement that uses `enterprise` into
+> a subsequent migration. Use autocommit only for an older supported PostgreSQL version or a
+> migration workflow that you have verified requires it.
 
-The cleanest fix is to disable per-migration transactions for this revision. In `env.py`:
+For a legacy environment that demonstrably requires autocommit, configure it deliberately. In `env.py`:
 
 ```python
 context.configure(

@@ -1,5 +1,12 @@
 # JWT — JSON Web Tokens
 
+<!-- length-justification: This note is the canonical JWT trust-boundary reference, keeping structure, validation, JWKS rotation, and library implementations together so security-critical checks do not drift across copies. -->
+
+> **Who this is for**: Backend engineers validating issuer-signed tokens at an API boundary.
+
+> **Key insight**: Cryptographic authenticity proves who signed a token; issuer, audience, freshness,
+> and token-profile checks determine whether it is suitable for this endpoint.
+
 > A self-contained, cryptographically signed token. The server signs it; anyone with the public key can verify it without calling the server again.
 
 ---
@@ -199,11 +206,25 @@ RFC 7519 §4.1.4 explicitly allows implementers to accept **"some small leeway, 
 
 ```python
 # PyJWT: use the `leeway` argument
-jwt.decode(token, signing_key.key, algorithms=["RS256"], issuer=ISSUER, leeway=30)
+jwt.decode(
+    token,
+    signing_key.key,
+    algorithms=["RS256"],
+    issuer=ISSUER,
+    audience=API_AUDIENCE,
+    leeway=30,
+)
 
 # python-jose: same option
 from jose import jwt as jose_jwt
-jose_jwt.decode(token, key, algorithms=["RS256"], options={"leeway": 30})
+jose_jwt.decode(
+    token,
+    key,
+    algorithms=["RS256"],
+    issuer=ISSUER,
+    audience=API_AUDIENCE,
+    options={"leeway": 30},
+)
 ```
 
 Pick a single value for your service (30s is a reasonable default), apply it to `exp`, `nbf`, and `iat` uniformly, and do not extend it further without a specific reason — every second of leeway is extra time a stolen token stays valid after its nominal expiry.
@@ -255,7 +276,6 @@ def seconds_until_expiry(token: str) -> float:
 ```python
 import jwt
 from jwt import PyJWKClient
-from typing import Optional
 
 # Initialize once at startup — handles caching internally
 jwks_client = PyJWKClient(
@@ -269,26 +289,24 @@ def validate_token(
     token: str,
     *,
     issuer: str,
-    audience: Optional[str] = None,
-    algorithms: Optional[list[str]] = None,
+    audience: str,
 ) -> dict:
     """
     Validate a JWT and return the decoded claims.
     Raises jwt.exceptions.InvalidTokenError on any validation failure.
     """
-    algorithms = algorithms or ["RS256"]
     signing_key = jwks_client.get_signing_key_from_jwt(token)
 
     return jwt.decode(
         token,
         signing_key.key,
-        algorithms=algorithms,
+        algorithms=["RS256"],
         issuer=issuer,
         audience=audience,
         options={
             "verify_exp": True,
             "verify_iss": True,
-            "verify_aud": audience is not None,
+            "verify_aud": True,
         },
     )
 ```

@@ -4,7 +4,24 @@
 
 ---
 
-## 1️⃣ The Mental Model
+## A provider-owned contract is the reason to reach for SOAP
+
+Suppose a bank gives you a **Web Services Description Language (WSDL)** document—a machine-readable
+XML contract for operations, messages, bindings, and service locations—and requires a particular
+**WS-\*** security profile, one of SOAP's related Web Services standards. Generate the client from
+that WSDL and send a named request. A validation failure returns a SOAP Fault whose code and detail
+the generated client exposes; a random XML POST is not equivalent.
+
+This early result is intentionally bounded to contract-driven request/fault handling. Version
+selection, XML parser hardening, timeouts, and WS-Security follow after the envelope mechanism is
+visible.
+
+> **Key insight**: SOAP's interoperability comes from a shared message-processing contract, not
+> merely from sending XML over HTTP.
+
+---
+
+## 1️⃣ The envelope carries the formal contract's message
 
 **SOAP** is an XML-based messaging protocol. A SOAP message is an envelope that can carry application data in its body and extensible processing instructions in headers.
 
@@ -131,4 +148,3 @@ Avoid choosing it by default for a greenfield web or mobile API when ordinary HT
 ---
 
 **Next**: [GraphQL Overview](05_graphql_overview.md)
-

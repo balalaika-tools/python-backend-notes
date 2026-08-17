@@ -2,6 +2,9 @@
 
 > **Who this is for**: API practitioners who need security decisions visible at every resource boundary. Assumes [Resource and URI Design](03_resource_and_uri_design.md).
 
+> **Key insight**: API authorization is a decision over principal, operation, object relationship,
+> property, and current state—not a one-time token check.
+
 ---
 
 ## 1. Security Is a Decision Stack
@@ -100,7 +103,11 @@ For update/delete, include the authorization/concurrency scope in the atomic sta
 Distinguish the *claimed* tenant (whatever the request presents) from the *authorized* tenant (what the principal is actually allowed to act as):
 
 - **Path** (`/tenants/{tenant_id}/orders`) — readable and easy to log, but purely an addressing detail. Never treat its presence as authorization.
-- **JWT claim** (`tenant_id` inside a signed access token) — the strongest source, since your own auth service issued it and it can't be forged without the signing key. Prefer this as the source of truth for human/user-driven requests.
+- **JSON Web Token (JWT) claim** (`tenant_id` inside a signed claim container) — trustworthy only
+  after the verifier pins the algorithm and validates the signature, issuer, audience, expiry, and
+  expected token profile, and only when the issuer contract says this claim represents current
+  tenant entitlement. When that contract is absent or entitlement changes faster than token
+  lifetime, resolve allowed tenants server-side instead.
 - **Header** (`X-Tenant-Id`) — common in service-to-service calls where the caller isn't a user with a token scoped to one tenant. Trust it only from an authenticated, allow-listed internal caller (e.g., a gateway), never from an arbitrary client.
 - **Subdomain** (`acme.api.example.com`) — convenient for multi-tenant SaaS routing and cache separation at the edge, but still just an address; resolve it to a tenant record and re-verify against the principal exactly like a path segment.
 

@@ -1,10 +1,19 @@
 # 08 — Database Testing
 
-> **Purpose**: Run tests against a database fast and deterministically, without "works on CI, breaks in prod".
+> **Who this is for**: Backend engineers choosing an isolated database-test boundary that matches
+> the SQL and transaction behavior used in production.
 
 Mocking the database is usually wrong. Tests that pass against mocks but fail against real Postgres are the canonical source of broken migrations, silently-wrong queries, and constraint violations that only surface in production.
 
 This guide covers three families of strategies, and when mocks are still the right call.
+
+The baseline success signal is two tests that each insert the same unique value and both pass when
+run together: it proves the first test's committed state did not leak into the second. If the second
+fails a uniqueness constraint, the fixture's rollback/recreate boundary is not controlling the
+connection used by the application.
+
+> **Key insight**: Database-test isolation is a property of the transaction and connection the
+> application actually uses, not of calling `rollback()` on a nearby session.
 
 ---
 
@@ -23,7 +32,7 @@ This guide covers three families of strategies, and when mocks are still the rig
 
 ---
 
-## Strategy 1: Fresh Database Per Test Module
+## Strategy 1: Fresh Database Per Test
 
 Simplest, slowest. Good for small suites or CI where clarity matters more than speed.
 
@@ -41,7 +50,7 @@ engine = create_engine("sqlite:///./test.db")
 TestingSessionLocal = sessionmaker(bind=engine)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def setup_database():
     Base.metadata.create_all(bind=engine)
     yield
@@ -68,6 +77,10 @@ def client(db_session):
         yield client
     app.dependency_overrides.clear()
 ```
+
+Function scope is intentional. Application code may call `commit()`, so rolling back a separate
+fixture session does not erase committed rows. Recreating this small SQLite schema per test keeps
+the baseline isolated; use Strategy 2's outer transaction/savepoint for speed with a real database.
 
 ---
 

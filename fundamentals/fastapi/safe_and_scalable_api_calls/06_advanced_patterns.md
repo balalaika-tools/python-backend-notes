@@ -1,6 +1,14 @@
 # Part 6: Advanced Resilience Patterns
 
+<!-- length-justification: This conditional deep-dive keeps the resilience mechanisms in one decision reference because circuit breakers, bulkheads, hedging, queues, and adaptive limits must be compared by the load and failure propagation they reshape. -->
+
+> **Who this is for**: Engineers adding resilience controls after the bounded external-call baseline
+> is already working.
+
 > **Principle**: Some mechanisms must be shared across pods, others must remain local.
+
+> **Key insight**: Advanced resilience controls reshape load and failure propagation, so their
+> scope must match the resource they protect.
 
 ---
 
@@ -145,7 +153,7 @@ Vendor call
 
 If breaker is open, don't waste rate limit tokens or semaphore slots.
 
-### Why In-Memory Breakers Are WRONG
+### Breaker state follows the dependency failure domain
 
 Without shared state:
 
@@ -155,9 +163,14 @@ Pod B → breaker CLOSED
 Pod C → breaker CLOSED
 ```
 
-Result: Vendor still receives traffic from Pods B and C.
+If all pods call the same vendor partition and should stop together, independent breakers let Pods
+B and C continue sending traffic after Pod A opens. Shared state can coordinate that failure
+domain. But a global breaker can also correlate unrelated tenants, regions, or vendor shards and
+turn one localized fault into a fleet-wide outage.
 
-**Circuit breakers MUST be shared (Redis).**
+Use process-local state when each instance has an independent connection/failure domain, shared
+state when callers truly share one dependency budget, and partition either design by the smallest
+key that fails together (for example region plus vendor account).
 
 ### Redis-Backed Circuit Breaker
 

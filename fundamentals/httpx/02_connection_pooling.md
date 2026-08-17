@@ -1,6 +1,12 @@
 # HTTPX Connection Pooling
 
+> **Who this is for**: Async Python engineers sizing reusable HTTP connections separately from
+> application concurrency.
+
 > **Core idea**: Pool limits control how many sockets exist, not how many coroutines run.
+
+> **Key insight**: Pool limits bound sockets, while a separate application limiter bounds admitted
+> coroutines.
 
 ---
 
@@ -85,7 +91,7 @@ max_keepalive_connections ≤ max_connections
 ```
 
 - `max_connections`: ceiling during load
-- `max_keepalive_connections`: floor during idle
+- `max_keepalive_connections`: ceiling on idle reusable connections retained in the pool
 
 ---
 

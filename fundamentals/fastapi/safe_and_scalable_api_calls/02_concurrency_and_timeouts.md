@@ -1,6 +1,13 @@
 # Part 2: Concurrency and Timeouts
 
-> **Principle**: Client timeouts are the only true request kill-switch. `asyncio.timeout` is advisory.
+> **Who this is for**: Async Python engineers separating admission wait, downstream attempt, and
+> total-operation time budgets.
+
+> **Principle**: Use an explicit total deadline for the operation and HTTPX phase timeouts for
+> connect, pool, write, and read inactivity. Neither proves that the remote server stopped work.
+
+> **Key insight**: Concurrency limits bound in-flight work, while deadlines bound how long each
+> admitted unit may retain capacity.
 
 ---
 
@@ -28,32 +35,37 @@ Each layer has a **specific responsibility**.
 
 ---
 
-## 2. `asyncio.timeout` Is NOT a Real Request Timeout
+## 2. `asyncio.timeout` Enforces the Application's Total Deadline
 
-`asyncio.timeout`:
-- **Cancels the Python task**
-- Does **NOT** immediately terminate sockets
-- Does **NOT** guarantee immediate resource release
-- Does **NOT** stop vendor-side processing
-
-It provides **application-level cancellation**, not transport-level enforcement.
+`asyncio.timeout()` schedules cancellation of the current task when its deadline expires. Inside
+the context, the task receives `CancelledError`; the context manager converts its own cancellation
+to `TimeoutError` outside the block. That is a real application-level deadline: your coroutine
+stops waiting and cleanup runs, provided the awaited code cooperates with cancellation.
 
 ```python
-async with asyncio.timeout(30):
-    response = await client.get(url)
+class TotalDeadlineExceeded(Exception):
+    pass
+
+
+try:
+    async with asyncio.timeout(30):  # total budget, including pool wait and body read
+        response = await client.get(url)
+except TimeoutError:
+    raise TotalDeadlineExceeded from None
 ```
 
-When this timeout fires:
-1. The coroutine receives `CancelledError`
-2. The socket **may still be open** briefly
-3. The vendor **may still be processing**
-4. Resources are **eventually** cleaned up
+The deadline does not retract bytes already sent or guarantee that the vendor stops processing.
+The socket may remain open briefly while HTTPX unwinds and returns or closes the connection. Treat
+an expired non-idempotent call as an **ambiguous outcome**, not proof that nothing happened.
 
 ---
 
-## 3. Client Timeouts Are the Only True Kill-Switch
+## 3. HTTPX Timeouts Bound Transport Phases, Not Total Wall Time
 
-Only **client-level timeouts** (e.g., `httpx.Timeout`) reliably terminate requests at the socket level.
+HTTPX timeouts bound distinct phases: connection establishment, pool acquisition, writes, and
+periods without received data. A read timeout is an inactivity bound; a long streaming response
+can continue indefinitely while chunks keep arriving. It is therefore not a substitute for the
+total `asyncio.timeout()` deadline above.
 
 ```python
 timeout = httpx.Timeout(
@@ -64,12 +76,10 @@ timeout = httpx.Timeout(
 )
 ```
 
-These timeouts:
-- Act **directly** on TCP/TLS I/O
-- **Bound kernel resource usage**
-- Are **required** to avoid silent resource leaks
-
-**Rule**: Application timeouts should be slightly larger than client timeouts.
+Use both layers. Phase limits identify and bound a stalled transport phase; the outer deadline
+caps the whole logical attempt or request, including rate-limit waits, pool waits, and retry sleep.
+Budget inner phases so useful work can finish before the outer deadline rather than applying a
+mechanical "slightly larger" rule.
 
 ---
 

@@ -4,6 +4,24 @@
 
 ---
 
+## Worked compatibility trace
+
+An API currently returns `{"customer_name":"Ada"}` and needs to rename the field to
+`display_name`. Deploying the rename in one step breaks every old consumer. Use an overlap:
+
+1. **Expand**: return both fields; old and new consumers both pass.
+2. **Migrate**: observe that supported consumers read `display_name`.
+3. **Contract**: remove `customer_name` only after the compatibility window closes.
+
+The success signal during expansion is two contract tests—one old schema and one new schema—passing
+against the same response. This note later adds version policy, deprecation evidence, and governance;
+the trace above is the minimum mechanism they harden.
+
+> **Key insight**: Compatibility is an overlap property of independently deployed producers and
+> consumers, not merely a schema-diff result.
+
+---
+
 ## 1. Treat the Contract as a Product
 
 The interface is the part consumers build against. A production contract includes more than a schema:

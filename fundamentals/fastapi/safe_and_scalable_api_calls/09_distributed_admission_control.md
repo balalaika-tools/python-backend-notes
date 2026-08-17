@@ -1,6 +1,14 @@
 # Part 9: Distributed Admission Control with Redis
 
+<!-- length-justification: This is the canonical distributed-admission implementation; atomic Lua policy, FastAPI integration, reconciliation, operations, and failure policy remain together because they implement one shared decision boundary. -->
+
+> **Who this is for**: Engineers enforcing tenant, model, and fleet-wide limits across multiple
+> application processes.
+
 > **Principle**: In a multi-pod system, your application is the brain and Redis is the shared memory. Every cross-pod limit reduces to "name a key, run a small Lua script, branch on the result". Fancy in-process libraries (`AsyncLimiter`, `aiolimiter`) protect a single process — useless when there are N pods.
+
+> **Key insight**: Distributed admission requires one atomic shared decision plus an explicit policy
+> for shared-store failure.
 
 > **Prerequisite**: Read [infrastructure/redis/05_rate_limiting.md](../../../infrastructure/redis/05_rate_limiting.md) for the four core algorithms (fixed window, sliding log, sliding counter, token bucket). This file uses them as building blocks.
 
@@ -683,14 +691,17 @@ Useful when a specific model is having issues but others are fine.
 ### 9.5 Inspect a user's current state
 
 ```bash
-redis-cli KEYS "user:abc123:*"
+redis-cli --scan --pattern "user:abc123:*" --count 100
 redis-cli MGET user:abc123:rpm:27891240 user:abc123:tpd:20260417
 # inflight is a sorted set, not a string — inspect it with ZCARD / ZRANGE:
 redis-cli ZCARD user:abc123:inflight                       # live slot count
 redis-cli ZRANGE user:abc123:inflight 0 -1 WITHSCORES      # tokens + expiry_ts
 ```
 
-Debugging "why is this user getting 429s" is a `KEYS` away. Compare to debugging an in-process `AsyncLimiter` (you can't, it's per-pod state in someone's Python process).
+`SCAN` is cursor-based and avoids the single O(N) blocking operation performed by `KEYS`. For a
+high-volume system, maintain an explicit per-user index of diagnostic keys so operators do not
+need a keyspace scan at all. Compare that with an in-process `AsyncLimiter`, whose state exists
+only inside one Python process.
 
 ---
 

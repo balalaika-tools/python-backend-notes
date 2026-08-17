@@ -1,6 +1,12 @@
 # Part 2: Worker Patterns
 
+> **Who this is for**: Engineers implementing worker claim, heartbeat, execution, and acknowledgement
+> behavior after choosing an orchestration pattern.
+
 How the worker receives tasks, executes them, reports health, handles failures, and delivers results. The worker is the execution engine — everything else exists to support it.
+
+> **Key insight**: A queue acknowledgement is a claim about durable effects, not merely evidence
+> that the handler returned.
 
 ---
 
@@ -81,27 +87,53 @@ Worker sends periodic signals. See [Orchestration Patterns: Heartbeat Monitoring
 import asyncio
 import httpx
 
+
+class LeaseRenewalFailed(RuntimeError):
+    pass
+
+
 async def heartbeat_sender(job_id: str, url: str, interval: float = 30.0):
-    async with httpx.AsyncClient() as client:
+    failures = 0
+    async with httpx.AsyncClient(timeout=5.0) as client:
         while True:
-            await client.post(f"{url}/jobs/{job_id}/heartbeat")
+            try:
+                response = await client.post(f"{url}/jobs/{job_id}/heartbeat")
+                response.raise_for_status()
+                failures = 0
+            except httpx.HTTPError as exc:
+                failures += 1
+                logger.exception("heartbeat_failed", extra={"job_id": job_id, "failures": failures})
+                if failures >= 2:  # before the 90-second lease can expire
+                    raise LeaseRenewalFailed(job_id) from exc
             await asyncio.sleep(interval)
 ```
+
+Run the heartbeat and bounded work in one `asyncio.TaskGroup`; if renewal fails repeatedly, the
+exception cancels the work task before the orchestrator may legitimately reassign the lease. Work
+that performs external effects must also carry the lease generation as a fencing token.
 
 ### Status Writes to Shared Store (Passive)
 
 Worker periodically writes its status to a shared store (Redis, DynamoDB, PostgreSQL). The orchestrator reads it when needed.
 
 ```python
+from datetime import UTC, datetime
+
+
 async def update_progress(redis: Redis, job_id: str, progress: int, step: str):
     await redis.hset(f"job:{job_id}", mapping={
         "progress": progress,
         "step": step,
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),  # aware RFC 3339-style UTC text
     })
-    # TTL acts as implicit heartbeat — if the key expires, the worker is dead
+    # TTL is a lease observation. Expiry means renewal was not observed; it
+    # does not prove the process died.
     await redis.expire(f"job:{job_id}", 120)  # 2x heartbeat interval
 ```
+
+Before assigning a replacement, a monitor marks the lease's owner/generation expired and issues a
+new generation atomically. The replacement includes that generation in conditional writes so a
+partitioned old worker cannot complete the same effect after it reconnects.
 
 ### Health Endpoint (Infrastructure-Level)
 
@@ -318,21 +350,44 @@ Workers should be idempotent — processing the same task twice must produce the
 - The orchestrator might retry on timeout (worker was actually alive, just slow)
 - Network partitions can cause duplicate dispatches
 
-### Idempotency Key
+### A claim is not proof that the effect completed
 
-Every task has a unique key. Before processing, the worker checks if it already processed this key.
+Setting `processed:{task_id}` before the effect creates a lost-work window: the worker can crash
+after `SET NX` and every retry will skip an effect that never happened. Use a `claimed → complete`
+record with an expiring lease, and couple `complete` to the durable business effect in one database
+transaction whenever both live in the same store.
 
 ```python
-async def process_if_new(redis: Redis, task_id: str, task_data: dict):
-    # SET NX = set only if not exists. Returns True if set, False if already exists.
-    is_new = await redis.set(f"processed:{task_id}", "1", nx=True, ex=86400)
+async def process_if_claimed(db, task_id: str, task_data: dict):
+    claimed = await db.fetchval(
+        """
+        INSERT INTO task_effects (task_id, state, lease_expires_at)
+        VALUES ($1, 'claimed', now() + interval '2 minutes')
+        ON CONFLICT (task_id) DO UPDATE
+          SET state = 'claimed', lease_expires_at = EXCLUDED.lease_expires_at
+        WHERE task_effects.state <> 'complete'
+          AND task_effects.lease_expires_at < now()
+        RETURNING true
+        """,
+        task_id,
+    )
+    if not claimed:
+        return  # another live claimant, or the effect is already complete
 
-    if not is_new:
-        logger.info(f"Task {task_id} already processed, skipping")
-        return
-
-    await do_actual_processing(task_data)
+    async with db.transaction():
+        # This write and the completion marker commit together. A crash rolls
+        # both back, so a later claimant can safely retry.
+        await apply_business_effect(db, task_id, task_data)
+        await db.execute(
+            "UPDATE task_effects SET state = 'complete' "
+            "WHERE task_id = $1 AND state = 'claimed'",
+            task_id,
+        )
 ```
+
+When the effect belongs to a remote service, use that service's idempotency key if available and
+persist the returned operation ID. No local Redis flag can atomically prove an unrelated remote
+effect completed.
 
 ### Idempotent Result Storage
 

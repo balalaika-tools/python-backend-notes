@@ -1,8 +1,12 @@
 # Environment & Configuration in Python — A Production Guide
 
+<!-- length-justification: This is the canonical configuration reference; source precedence, typed validation, secrets, framework wiring, and deployment examples remain together because they form one startup boundary whose order must not drift. -->
+
 > **Who this is for**: Python backend developers who know environment variables
 > and want one typed, validated configuration boundary for local development,
 > tests, containers, and production secret delivery.
+
+> **Key insight**: Treat deployment strings as untrusted input at one typed startup boundary.
 
 This guide explains **how to manage configuration in Python backend applications** — from local development to production. Covers the 12-factor methodology, pydantic-settings, secrets management, and real-world patterns for FastAPI.
 
@@ -32,7 +36,7 @@ This includes:
 ```python
 # ❌ Config in code — must redeploy to change anything
 DATABASE_URL = "postgresql://user:pass@prod-db:5432/myapp"
-STRIPE_KEY = "sk_live_abc123"
+STRIPE_KEY = "example-not-a-real-key"
 DEBUG = False
 ```
 
@@ -87,7 +91,7 @@ class Settings(BaseSettings):
 
 ```bash
 export DATABASE_URL="postgresql://user:pass@localhost:5432/myapp"
-export API_KEY="sk_test_abc123"
+export API_KEY="example-not-a-real-key"
 ```
 
 ```python
@@ -149,7 +153,7 @@ entry point.
 # .env — local development only
 DATABASE_URL=postgresql://user:pass@localhost:5432/myapp
 REDIS_URL=redis://localhost:6379
-API_KEY=sk_test_local_key
+API_KEY=example-not-a-real-key
 DEBUG=true
 ```
 
@@ -522,7 +526,7 @@ In development, `.env` is fine for secrets — just keep it out of git:
 # .env (local dev only, in .gitignore)
 DATABASE_URL=postgresql://dev:dev@localhost:5432/myapp
 SECRET_KEY=not-a-real-secret
-STRIPE_KEY=sk_test_abc123
+STRIPE_KEY=example-not-a-real-key
 ```
 
 ### Production: Environment Variables or Mounted Secrets
@@ -627,7 +631,7 @@ SECRET_KEY = "my-super-secret-key-12345"
 
 # ❌ Secret in default value
 class Settings(BaseSettings):
-    api_key: str = "sk_live_real_production_key"
+    api_key: str = "example-not-a-real-key"
 
 # ❌ Secret in committed .env
 # (if .env is not in .gitignore)
@@ -981,7 +985,7 @@ class Settings(BaseSettings):
 ```python
 # ❌ Default value is a real secret — ends up in git
 class Settings(BaseSettings):
-    api_key: str = "sk_live_abc123_real_key"
+    api_key: str = "example-not-a-real-key"
 
 # ✅ No default for secrets — force them from environment
 class Settings(BaseSettings):

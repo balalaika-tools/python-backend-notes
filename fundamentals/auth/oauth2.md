@@ -1,5 +1,11 @@
 # OAuth 2.0 — The Authorization Framework
 
+> **Who this is for**: Backend engineers choosing an OAuth flow and enforcing delegated access at a
+> resource server.
+
+> **Key insight**: OAuth delegates bounded authority; it does not by itself prove an API caller has
+> every application-level permission the requested operation requires.
+
 > OAuth 2.0 is a framework that lets a client obtain **limited access** to a resource on behalf of a user or itself — without sharing passwords.
 
 ---
@@ -42,7 +48,11 @@ Your App → Auth Server: exchange code for tokens
 Auth Server → Your App: access_token + id_token + refresh_token
 ```
 
-PKCE (Proof Key for Code Exchange) prevents auth code interception attacks. It has long been required for public clients (SPAs, mobile), and OAuth 2.1 makes it **mandatory for every Authorization Code flow — including confidential server-side clients**. Send `code_challenge` on the authorize request and `code_verifier` on the token exchange for all clients, not just public ones.
+PKCE (Proof Key for Code Exchange) prevents auth code interception attacks. Published OAuth
+security guidance requires it for public clients and recommends it broadly. The current OAuth 2.1
+**Internet-Draft** consolidates that direction and requires PKCE for authorization-code clients;
+it is not yet a published RFC. Send `code_challenge` on the authorize request and `code_verifier`
+on the token exchange for all clients unless a provider contract explicitly says otherwise.
 
 ```python
 import secrets, hashlib, base64
@@ -147,11 +157,13 @@ User logs in on another device and enters the code
 Auth Server → Device (on next poll): access_token
 ```
 
-### 5. Resource Owner Password (Deprecated / removed in OAuth 2.1)
+### 5. Resource Owner Password (deprecated; omitted by the OAuth 2.1 draft)
 
-Sends username + password directly to the auth server. **Do not use** for new projects — it defeats the purpose of OAuth (in authorization code flow, the client never sees the password). It is **removed entirely in OAuth 2.1**, not merely discouraged. Still appears in some legacy systems and automated tests.
+Sends username + password directly to the auth server. **Do not use** for new projects — it defeats the purpose of OAuth (in authorization code flow, the client never sees the password). The published OAuth Security Best Current Practice says this grant **must not** be used, and the current OAuth 2.1 draft omits it. It still appears in legacy systems and automated tests.
 
-> **Implicit grant** (`response_type=token`, tokens returned in the URL fragment) is the other removed flow. You may still see it in older OIDC discovery documents and tutorials — never use it. SPAs that historically used Implicit should use **Authorization Code + PKCE** instead.
+> **Implicit grant** (`response_type=token`, tokens returned in the URL fragment) is likewise
+> discouraged by published security guidance and omitted by the OAuth 2.1 draft. SPAs that
+> historically used Implicit should use **Authorization Code + PKCE** instead.
 
 Note: Cognito's `USER_PASSWORD_AUTH` / `ADMIN_USER_PASSWORD_AUTH` are **not** the OAuth 2.0 ROPC grant. They are Cognito-native auth flows exposed via the `InitiateAuth` / `AdminInitiateAuth` APIs — Cognito's `/oauth2/token` endpoint does not support `grant_type=password`.
 

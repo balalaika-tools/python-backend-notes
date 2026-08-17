@@ -1,5 +1,11 @@
 # Amazon Cognito — The Mental Model
 
+> **Who this is for**: Backend engineers deciding which Cognito identity boundary their application
+> actually needs.
+
+> **Key insight**: User Pools issue application identity, while Identity Pools exchange an identity
+> for AWS credentials; they solve different trust-boundary problems.
+
 ## What Problem Does It Solve?
 
 Every app needs to answer two questions:
@@ -235,9 +241,9 @@ For JWT theory and OAuth concepts, see the parent folder:
 
 Cognito pricing scales per **Monthly Active User (MAU)**, not per request. A user is "active" if any auth operation happens on them in the month (login, token refresh, sign-up, etc.).
 
-As of the **late-2024 pricing restructure**, user pools come in three feature tiers, each priced differently. Pick the tier that matches the features you need — advanced security and managed-login branding require Essentials or Plus:
+As of August 2026, user pools come in three feature tiers, each priced differently. Pick the tier that matches the features you need — advanced security and managed-login branding require Essentials or Plus:
 
-- **Lite** — basic auth. **50,000 MAU free**, then roughly **$0.0055/MAU** for the first paid band, cheaper at scale. This is the old "50k free" model.
+- **Lite** — basic auth. **10,000 direct/social MAU free**, then roughly **$0.0055/MAU** for the first paid band, cheaper at scale.
 - **Essentials** — adds managed login branding, advanced threat protection options, etc. **10,000 MAU free**, then ~**$0.015/MAU**.
 - **Plus** — adds full advanced security (compromised-credential checks, adaptive auth). **Charges from the first MAU**, highest per-MAU rate.
 
@@ -246,7 +252,7 @@ Always confirm current rates and tier features at <https://aws.amazon.com/cognit
 - **SAML / OIDC federation** users are priced separately: only **50 MAU free**, then ~$0.015/MAU above that.
 - **Machine-to-machine tokens** (client_credentials) are priced per token request, not per MAU, since there's no "user" to be monthly-active.
 
-For planning: a 100k-MAU app on the **Lite** tier is in the paid band for about `50,000 × $0.0055 ≈ $275/month`. The same app on Essentials/Plus costs substantially more — size the tier *and* the volume before the invoice appears.
+For planning: a 100k-MAU app on the **Lite** tier has about 90,000 billable MAUs after the current free allowance. At a hypothetical flat `$0.0055/MAU`, that would be `90,000 × $0.0055 ≈ $495/month`; the real bill must use AWS's current graduated rates. The same app on Essentials/Plus costs substantially more — size the tier *and* the volume before the invoice appears.
 
 ---
 

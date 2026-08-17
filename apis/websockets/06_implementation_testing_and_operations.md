@@ -2,6 +2,9 @@
 
 > **Who this is for**: Python/FastAPI practitioners implementing the protocol, security, and backpressure decisions from the earlier WebSocket chapters.
 
+> **Key insight**: One reader, one writer, and a bounded queue turn concurrent producers into one
+> ordered ownership path per socket.
+
 ---
 
 ## 1. Reference FastAPI Implementation
@@ -17,6 +20,20 @@ This compact service demonstrates:
 - Cleanup on every exit
 
 The example channel carries only user-scoped notifications, avoiding a fake object authorization implementation. Add a scoped database policy before introducing object subscriptions.
+
+The application-level length check below runs only **after** the ASGI server has assembled and
+decoded a complete message. Enforce the allocation bound in the selected WebSocket backend too.
+For Uvicorn's `websockets` backend:
+
+```bash
+uvicorn app:app --ws websockets --ws-max-size 16384 --ws-max-queue 32
+```
+
+In an integration test, send a text message larger than 16 KiB and assert close code `1009` while
+the handler records no successful parse. Repeat with fragmented and per-message-deflate compressed
+messages because frame assembly and decompression happen below the application; confirm the
+selected backend/version applies its configured limit to the assembled message. The Python check
+remains defense in depth, not the pre-allocation control.
 
 ```python
 import asyncio
@@ -151,6 +168,8 @@ async def send_messages(client: ClientConnection) -> None:
 
 async def receive_messages(client: ClientConnection) -> None:
     while True:
+        # Defense in depth only: receive_text() has already caused the backend
+        # to buffer, assemble, decompress, and decode the message.
         raw_message = await client.websocket.receive_text()
         if len(raw_message.encode("utf-8")) > MAX_INBOUND_BYTES:
             await client.websocket.close(code=1009, reason="message too large")

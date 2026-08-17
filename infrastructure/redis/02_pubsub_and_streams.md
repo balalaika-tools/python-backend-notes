@@ -1,6 +1,14 @@
 # Redis Pub/Sub & Streams
 
+<!-- length-justification: This is the canonical Redis messaging comparison and recovery reference; Pub/Sub and Streams remain together because the teaching goal is to expose how durability changes consumer acknowledgement, replay, and idempotency responsibilities. -->
+
+> **Who this is for**: Backend engineers choosing between ephemeral Redis Pub/Sub and retained
+> Redis Streams delivery.
+
 > **Two messaging models, one database.** Redis offers two distinct ways to pass messages between producers and consumers. Pub/Sub is fire-and-forget: fast, ephemeral, no history. Streams are durable: messages persist, can be replayed, and support consumer groups. Knowing when to use each is the key decision.
+
+> **Key insight**: Retained messages still require acknowledgement, recovery, and idempotency;
+> durability changes consumer responsibility as well as storage.
 
 Mental model:
 
@@ -64,23 +72,35 @@ def publish_event(channel: str, data: dict):
     num_subscribers = r.publish(channel, message)
     print(f"Published to {num_subscribers} subscriber(s)")
 
-publish_event("notifications", {"type": "order_created", "order_id": 42})
-
 # --- Subscriber ---
+subscription_ready = threading.Event()
+
+
 def subscribe_loop(channels: list[str]):
     pubsub = r.pubsub()
     pubsub.subscribe(*channels)
 
-    print(f"Subscribed to {channels}")
     for message in pubsub.listen():
-        if message["type"] == "message":
+        if message["type"] == "subscribe":
+            print(f"Subscribed to {channels}")
+            subscription_ready.set()
+        elif message["type"] == "message":
             data = json.loads(message["data"])
             print(f"Received on {message['channel']}: {data}")
+            return
 
 # Run subscriber in a thread (it blocks)
 thread = threading.Thread(target=subscribe_loop, args=(["notifications"],), daemon=True)
 thread.start()
+if not subscription_ready.wait(timeout=2):
+    raise RuntimeError("subscriber did not confirm within 2 seconds")
+publish_event("notifications", {"type": "order_created", "order_id": 42})
+thread.join(timeout=2)
 ```
+
+The observable result is `Published to 1 subscriber(s)` followed by `Received on notifications:`.
+Publishing before the subscription acknowledgement legitimately returns zero and leaves a
+one-message demo waiting forever because Redis Pub/Sub does not replay missed messages.
 
 ### Python Async Example
 
@@ -261,7 +281,9 @@ async def stream_listener(r, stream_name: str):
 
 ### Consumer Groups
 
-Consumer groups are the most powerful feature of Redis Streams. They allow **multiple workers to cooperatively process a stream**, with each message delivered to exactly one worker in the group.
+Consumer groups allow **multiple workers to cooperatively process a stream**. Each delivery is
+assigned to one consumer, but the group is at least once: an entry that is not acknowledged can be
+claimed and delivered again.
 
 ```
 Stream: "events:orders"
@@ -278,10 +300,15 @@ Stream: "events:orders"
 
 Key concepts:
 
-- **Each message is delivered to exactly one consumer within a group** (load distribution).
+- **Each delivery goes to one consumer within a group** (load distribution); failed deliveries can replay.
 - **Different groups are independent** — each group sees every message.
 - **Messages must be acknowledged** (`XACK`) — unacknowledged messages can be reclaimed.
 - **Pending entries list (PEL)** tracks delivered-but-not-acknowledged messages.
+
+That replay boundary is concrete: a worker can charge order `42`, crash before `XACK`, and leave
+the entry pending. A second worker claims it and invokes the handler again. The handler therefore
+needs an event ID recorded atomically with the business effect; consumer-group assignment alone
+does not make the effect exactly once.
 
 ### Consumer Group: Complete Example
 
@@ -306,7 +333,8 @@ async def setup_consumer_group(r):
 async def consumer(r, consumer_name: str):
     """
     Consume messages from the stream as part of a consumer group.
-    Each message is delivered to exactly one consumer in the group.
+    Each new delivery goes to one consumer. The handler remains idempotent because
+    crash recovery can deliver the same message again.
     """
     print(f"[{consumer_name}] Starting...")
 
@@ -547,16 +575,24 @@ async def _process_pending(r, stream, group, consumer, handler, max_retries):
             msg_id = msg_info["message_id"]
             delivery_count = msg_info["times_delivered"]
 
-            if delivery_count > max_retries:
+            if delivery_count >= max_retries:
                 print(f"Message {msg_id} exceeded max retries, sending to dead letter")
                 await r.xadd(f"{stream}:dead-letter", {"original_id": msg_id})
                 await r.xack(stream, group, msg_id)
                 continue
 
-            # Re-read the message data
-            messages = await r.xrange(stream, min=msg_id, max=msg_id)
-            if messages:
-                _, data = messages[0]
+            # XCLAIM performs a real redelivery and increments the PEL delivery
+            # counter. XRANGE would only reread bytes, so poison messages would
+            # never advance toward max_retries.
+            claimed = await r.xclaim(
+                name=stream,
+                groupname=group,
+                consumername=consumer,
+                min_idle_time=0,
+                message_ids=[msg_id],
+            )
+            if claimed:
+                _, data = claimed[0]
                 try:
                     await handler(msg_id, data)
                     await r.xack(stream, group, msg_id)

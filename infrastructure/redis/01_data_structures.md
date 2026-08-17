@@ -1,6 +1,14 @@
 # Redis Data Structures & Commands
 
+<!-- length-justification: This is the canonical Redis command/structure reference; each structure's atomic operations and the cross-structure lookup remain together so readers choose by required operation rather than container resemblance. -->
+
+> **Who this is for**: Backend engineers mapping application operations onto Redis's atomic data
+> structures.
+
 > **Mental model**: Redis is not just a key-value store. It is a **data structure server** — think of it as having remote, in-memory data structures served over TCP. You get strings, hashes, lists, sets, sorted sets, streams, and more, each with atomic operations designed for specific access patterns.
+
+> **Key insight**: Choose a Redis structure by the atomic operation the application needs, not by
+> superficial resemblance to a Python container.
 
 ---
 
@@ -82,14 +90,30 @@ r.incr("page:views:homepage")  # 1
 r.incr("page:views:homepage")  # 2
 r.incrby("page:views:homepage", 10)  # 12
 
+import secrets
+
 # Set-if-not-exists (used for distributed locks).
 # Prefer SET ... NX EX: it sets the value and TTL in ONE atomic command.
-acquired = r.set("lock:send-email:42", "worker-1", nx=True, ex=30)
+lock_key = "lock:send-email:42"
+owner_token = secrets.token_urlsafe(24)
+acquired = r.set(lock_key, owner_token, nx=True, ex=30)
 if acquired:
     # we got the lock atomically with a TTL — if the holder crashes,
     # the lock still auto-expires after 30s
     # do the work...
-    r.delete("lock:send-email:42")
+    # Release only our lease. A bare DEL could delete a successor's lock after
+    # our TTL expires while work is still finishing.
+    r.eval(
+        """
+        if redis.call('get', KEYS[1]) == ARGV[1] then
+            return redis.call('del', KEYS[1])
+        end
+        return 0
+        """,
+        1,
+        lock_key,
+        owner_token,
+    )
 
 # Avoid the legacy SETNX command (deprecated since 2.6.12 in favor of SET ... NX).
 # r.setnx() cannot set a TTL atomically: a crash between SETNX and EXPIRE
@@ -586,7 +610,9 @@ r.xtrim("events:orders", maxlen=10000, approximate=True)
 
 ### Consumer Groups
 
-Consumer groups let multiple workers process a stream cooperatively. Each message is delivered to **one consumer** in the group — no duplicate processing.
+Consumer groups let multiple workers process a stream cooperatively. A new delivery goes to one
+consumer in the group, but delivery is **at least once**: an unacknowledged entry may be reclaimed
+and delivered again.
 
 ```
 Stream: events:orders
@@ -594,7 +620,7 @@ Stream: events:orders
     +-- Consumer Group: "order-processors"
     |       +-- worker-1 (gets messages 1, 3, 5 ...)
     |       +-- worker-2 (gets messages 2, 4, 6 ...)
-    |       (each message delivered to exactly ONE consumer in the group)
+    |       (one consumer per delivery; a failed delivery can be replayed)
     |
     +-- Consumer Group: "analytics"
             +-- analyzer-1 (gets ALL messages independently)
@@ -607,6 +633,9 @@ Key concepts:
 - **Across groups**: Each group sees every message independently. This is fan-out.
 - **Messages must be acknowledged** (`XACK`) — unacknowledged messages can be reclaimed.
 - **Pending Entries List (PEL)**: Tracks messages delivered but not yet acknowledged. If a consumer crashes, another can reclaim its pending messages with `XCLAIM` or `XAUTOCLAIM`.
+- **Handlers must be idempotent**: if a worker performs the database write and crashes before
+  `XACK`, the reclaimed message repeats the handler. The second run must recognize the same event
+  identity and leave the business result unchanged.
 
 ```python
 # Create a consumer group (start from the beginning of the stream)

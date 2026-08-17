@@ -4,6 +4,31 @@
 
 ---
 
+## Quick local proof: emit one span before configuring a backend
+
+```python
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
+
+provider = TracerProvider()
+provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+trace.set_tracer_provider(provider)
+
+with trace.get_tracer("notes.quickstart").start_as_current_span("checkout"):
+    pass
+```
+
+Run the file after installing `opentelemetry-api` and `opentelemetry-sdk`. Standard output should
+contain `"name": "checkout"`; no output means the provider or processor was not installed. The
+console exporter is only a local proof. The sections below add service identity, batched OTLP
+export, metrics, FastAPI instrumentation, and shutdown flushing.
+
+> **Key insight**: Instrumentation creates telemetry in process; a provider, processor/reader, and
+> exporter are the separate path that makes it observable elsewhere.
+
+---
+
 ## 1. Installation
 
 ```bash
@@ -60,8 +85,7 @@ def setup_tracing(resource: Resource) -> None:
     provider.add_span_processor(
         BatchSpanProcessor(
             OTLPSpanExporter(
-                endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4317"),
-                insecure=True,  # remove if endpoint uses TLS
+                endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://otel-collector:4317"),
             )
         )
     )
@@ -132,8 +156,7 @@ from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExp
 def setup_metrics(resource: Resource) -> None:
     reader = PeriodicExportingMetricReader(
         OTLPMetricExporter(
-            endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4317"),
-            insecure=True,
+            endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://otel-collector:4317"),
         ),
         export_interval_millis=30_000,  # push metrics every 30s
     )
@@ -240,8 +263,7 @@ def init_telemetry(app: FastAPI) -> None:
     trace_provider.add_span_processor(
         BatchSpanProcessor(
             OTLPSpanExporter(
-                endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4317"),
-                insecure=True,
+                endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://otel-collector:4317"),
             )
         )
     )
@@ -250,8 +272,7 @@ def init_telemetry(app: FastAPI) -> None:
     # Metrics
     metric_reader = PeriodicExportingMetricReader(
         OTLPMetricExporter(
-            endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4317"),
-            insecure=True,
+            endpoint=os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://otel-collector:4317"),
         )
     )
     metrics.set_meter_provider(MeterProvider(resource=resource, metric_readers=[metric_reader]))
@@ -275,7 +296,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 ```
 
-> **Key insight**: Call `init_telemetry()` before the first request is handled. The `lifespan` hook is the cleanest place in FastAPI. If you instrument after requests start, spans from early requests will be lost.
+> **Production:** Call `init_telemetry()` before the first request is handled. The `lifespan` hook is the cleanest place in FastAPI. If you instrument after requests start, spans from early requests will be lost.
 
 For SQLAlchemy, instrument either specific engines with `SQLAlchemyInstrumentor().instrument(engine=engine)` or rely on the `opentelemetry-instrument` launcher for broader auto-instrumentation. Programmatic SQLAlchemy setup usually needs a real engine object, not just a bare `instrument()` call.
 
