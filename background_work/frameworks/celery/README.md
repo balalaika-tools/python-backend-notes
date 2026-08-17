@@ -16,9 +16,14 @@
 
 ## Reading Order
 
-1. Read the prerequisites below — [queue and worker architectures](../../04_queue_and_worker_architectures.md), then [task execution models](../../05_task_execution_models.md).
-2. Read the [general decision guide](../../09_decision_guide.md) to confirm a broker-backed task queue is the right role.
-3. Read the Celery overview.
+**Working result by entry 1**: run the overview's smallest broker-backed task and observe the worker result.
+
+1. **Do:** [Celery overview](overview.md) — run one task before evaluating the full runtime.
+2. **Understand when needed:** [Queue and worker architectures](../../04_queue_and_worker_architectures.md) and [task execution models](../../05_task_execution_models.md).
+3. **Decide:** use the [general decision guide](../../09_decision_guide.md) before committing to Celery for durable business state or multi-step workflows.
+
+**Stop here if** Celery's delivery, pool, and acknowledgement boundaries match one independent
+task. Continue into reliability notes when effects, replay, cancellation, or repair become product contracts.
 
 ---
 

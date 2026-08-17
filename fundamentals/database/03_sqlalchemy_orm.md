@@ -1,6 +1,12 @@
 # SQLAlchemy ORM — Core Concepts and Sync Usage
 
+<!-- length-justification: This is the canonical synchronous SQLAlchemy ORM reference; mappings, session identity, relationships, loading, transactions, and CRUD remain together because their behavior depends on one unit-of-work model. -->
+
+> **Who this is for**: Python engineers who understand relational tables and SQL and want to use SQLAlchemy's synchronous ORM without hiding transaction or loading behavior.
+
 > **What is an ORM?** An Object-Relational Mapper lets you interact with a database using Python objects instead of raw SQL. SQLAlchemy is Python's most powerful ORM and the de-facto standard for production Python backends.
+
+> **Key insight**: The ORM maps rows to objects, but the session—not the model instance—is the unit that owns identity, pending changes, and the transaction boundary.
 
 ---
 

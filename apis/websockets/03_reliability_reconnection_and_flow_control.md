@@ -2,6 +2,8 @@
 
 > **Who this is for**: Engineers who need WebSocket behavior to remain correct through slow clients, network loss, and reconnects. Assumes [Message Protocols and Contracts](02_message_protocols_and_contracts.md).
 
+> **Key insight**: A successful send proves local handoff, not application processing; recovery requires explicit acknowledgement, replay scope, and bounded buffering.
+
 ---
 
 ## 1. A Live TCP Connection Is Not a Delivery Guarantee
@@ -198,4 +200,3 @@ For every case, assert cleanup, bounded memory, client-visible recovery, and dur
 ---
 
 **Next**: [WebSocket Authentication and Security](04_authentication_and_security.md)
-

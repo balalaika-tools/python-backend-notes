@@ -176,6 +176,10 @@ from openai import AsyncOpenAI
 from app.ai.tickets import TicketClassification
 
 
+class ModelOutputUnavailable(Exception):
+    """Stable application category for refusal, truncation, or absent parsed data."""
+
+
 class OpenAIModelClient:
     def __init__(self, client: AsyncOpenAI):
         self.client = client
@@ -186,20 +190,44 @@ class OpenAIModelClient:
             input=messages,
             text_format=TicketClassification,
         )
+        if response.status != "completed":
+            reason = getattr(response.incomplete_details, "reason", "unknown")
+            raise ModelOutputUnavailable(f"incomplete:{reason}")
+
+        for output in response.output:
+            if output.type != "message":
+                continue
+            for item in output.content:
+                if item.type == "refusal":
+                    # Keep provider refusal prose out of the public application error.
+                    raise ModelOutputUnavailable("refused")
+
+        if response.output_parsed is None:
+            raise ModelOutputUnavailable("missing_parsed_output")
         return response.output_parsed
 ```
+
+Map `ModelOutputUnavailable` to a stable public error code. Restricted telemetry may record the
+category and response ID, but not the prompt, refusal prose, or model output. The Responses API
+exposes incomplete status/details and refusal content separately from parsed Structured Output, so
+parsed data is only the success branch; see the [official Structured Outputs guide](https://developers.openai.com/api/docs/guides/structured-outputs).
 
 Unit-test application code against `ModelClient`. Adapter tests can patch the SDK call or, if your adapter uses `httpx` directly, use `respx` to mock the HTTP boundary.
 
 ```python
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+
+from app.ai.openai_client import ModelOutputUnavailable, OpenAIModelClient
 
 
 @pytest.mark.asyncio
 async def test_openai_adapter_parses_response():
     sdk = AsyncMock()
+    sdk.responses.parse.return_value.status = "completed"
+    sdk.responses.parse.return_value.output = []
     sdk.responses.parse.return_value.output_parsed = TicketClassification(
         label="bug",
         confidence=0.88,
@@ -211,6 +239,24 @@ async def test_openai_adapter_parses_response():
 
     assert result.label == "bug"
     sdk.responses.parse.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_openai_adapter_maps_refusal_to_stable_error():
+    sdk = AsyncMock()
+    sdk.responses.parse.return_value.status = "completed"
+    sdk.responses.parse.return_value.output_parsed = None
+    sdk.responses.parse.return_value.output = [
+        SimpleNamespace(
+            type="message",
+            content=[SimpleNamespace(type="refusal", refusal="provider detail")],
+        )
+    ]
+
+    with pytest.raises(ModelOutputUnavailable, match="refused"):
+        await OpenAIModelClient(sdk).classify_ticket(
+            [{"role": "user", "content": "classify this ticket"}]
+        )
 ```
 
 If the SDK has built-in retries, turn them off in the adapter test when you are testing your own retry loop. Otherwise you will accidentally test two retry systems at once.
@@ -303,7 +349,9 @@ Do not let agent tests call real payment APIs, send real email, or mutate real C
 
 ## Golden Tests and Evals
 
-An eval is a small dataset plus a grader. Use it when the question is "is the behavior good enough?", not "did this function call that function?"
+An eval is a dataset plus a grader. Use it when the question is "is the behavior good enough?",
+not "did this function call that function?" The three cases below are a smoke-test demonstration,
+not enough evidence for a percentage-based production gate.
 
 ```jsonl
 {"input": "I was charged twice", "expected_label": "billing"}
@@ -332,8 +380,7 @@ async def test_ticket_classifier_eval(live_model, eval_cases):
         result = await classify_ticket(case["input"], live_model)
         correct += result.label == case["expected_label"]
 
-    accuracy = correct / len(eval_cases)
-    assert accuracy >= 0.90
+    assert correct == len(eval_cases)
 ```
 
 Keep eval datasets boring and representative:
@@ -341,7 +388,13 @@ Keep eval datasets boring and representative:
 - Real-ish user inputs, scrubbed of secrets and PII.
 - Edge cases that previously failed.
 - A stable expected outcome per case.
-- Enough examples to catch regression, not so many that every local run costs money.
+- Enough examples to represent important traffic slices and known failures.
+
+For a production regression gate, store every per-case result with model and prompt versions,
+choose a representative sample size before looking at the score, and run stochastic cases
+repeatedly. Gate on a confidence interval or another predeclared uncertainty bound rather than one
+pass/fail draw. Keep a separate budget-limited smoke set for pull requests and run the larger
+repeated evaluation on a schedule or before model or prompt promotion.
 
 OpenAI currently exposes active Evals guides and `/v1/evals` API operations. Keep your evaluation
 data in a repository or governed data store and make the runner portable across hosted and local

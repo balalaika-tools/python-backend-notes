@@ -1,6 +1,12 @@
 # HTTP Requests & FastAPI Parameter Mapping
 
+<!-- length-justification: This is the canonical FastAPI request-mapping reference; path, query, header, cookie, body, form, and file inputs remain together so precedence and OpenAPI behavior can be compared at one endpoint boundary. -->
+
+> **Who this is for**: Python engineers who know basic HTTP and want to predict exactly where FastAPI obtains each endpoint argument.
+
 This guide explains **how HTTP requests work** and **how FastAPI maps request data into function arguments**.
+
+> **Key insight**: FastAPI's function signature is a request contract: the parameter declaration determines both runtime extraction and the generated OpenAPI description.
 
 For protocol-neutral HTTP semantics, resource design, caching, compatibility, and operations, start with the **[RESTful API Deep Dive](../../apis/restful/README.md)**. This chapter focuses on FastAPI's parameter mapping.
 

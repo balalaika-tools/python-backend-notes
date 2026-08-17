@@ -146,7 +146,16 @@ await r.xack("task_stream", "workers", message_id)
 
 **Pick Redis when:** You need multiple of the above in one system, latency matters (sub-ms), and you're comfortable with at-most-once delivery (pub/sub) or at-least-once (Streams).
 
-**Avoid Redis when:** You need durable message persistence (Redis persistence is async), guaranteed exactly-once delivery, or you're processing millions of messages per second (Kafka territory).
+Redis persistence is a configurable durability/latency trade-off: RDB snapshots can lose the window
+since the last snapshot, while AOF with `appendfsync everysec` can lose roughly the latest second;
+`appendfsync always` narrows that local persistence window at a substantial write-latency cost.
+Replication is asynchronous, so acknowledged writes can still be lost during failover. Choose a
+broker whose documented loss window matches the job contract rather than treating “Redis” as one
+durability mode.
+
+**Avoid Redis when:** The accepted loss window is stricter than the selected Redis persistence and
+failover design, you require an end-to-end exactly-once effect, or the measured throughput/retention
+requirement calls for a partitioned event log such as Kafka.
 
 ---
 
@@ -386,9 +395,16 @@ Managed orchestrator with visual workflow designer. Natively supports the Task T
 
 ### When to Use Step Functions
 
-**Pick Step Functions when:** You're on AWS and need managed orchestration with visual debugging, built-in retries, and task token support. Particularly good for long-running workflows (hours) because you pay per state transition, not per second.
+The callback example above is a **Standard Workflow**: Standard supports `.waitForTaskToken` and is
+billed per state transition, so waiting does not hold worker compute. **Express Workflows** are
+duration/memory billed and do not support callback task tokens; choose them for high-rate,
+short-duration flows whose execution and pricing model fits.
 
-**Avoid Step Functions when:** You're not on AWS, your workflows are simple (just a queue + worker), or you need sub-second latency (Step Functions adds ~100ms per state transition).
+**Pick Step Functions when:** You're on AWS and need managed orchestration with visual debugging,
+built-in retries, and—when using Standard Workflows—task token callbacks.
+
+**Avoid Step Functions when:** You're not on AWS, a queue plus worker fully owns the lifecycle, or
+the selected workflow type's measured latency and billing model do not fit the workload.
 
 ---
 

@@ -2,6 +2,8 @@
 
 > **Who this is for**: Python developers moving substantial, independent CPU work out of a web or orchestration process. Read [State, Mutability, and Safety](../01_state_and_safety.md) before designing process-shared state.
 
+> **Key insight**: Process pools buy CPU parallelism by crossing a serialization and isolation boundary; task size must repay that boundary cost.
+
 ---
 
 ## 1. What a Process Pool Solves

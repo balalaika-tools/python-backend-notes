@@ -2,6 +2,8 @@
 
 > **Who this is for**: Developers who understand coroutines and tasks and now need async code that stays bounded, cancellable, observable, and correct under load. Read [Asyncio: Event Loops, Coroutines, and Tasks](01_event_loop_and_tasks.md) first.
 
+> **Key insight**: Production async code owns admitted work, task lifetime, cancellation, and cleanup as one structured boundary; spawning a coroutine solves none of those by itself.
+
 ---
 
 ## 1. Bound Both Work and Waiting

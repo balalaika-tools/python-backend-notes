@@ -1,6 +1,10 @@
 # 10 - API Design Conventions
 
+> **Who this is for**: FastAPI engineers who can expose routes and want those routes to form a predictable, evolvable HTTP contract.
+
 > **Purpose**: Design HTTP APIs that are predictable for clients, boring to operate, and easy to evolve without breaking consumers.
+
+> **Key insight**: Framework syntax creates routes; a durable API comes from consistent resource identity, HTTP semantics, and evolution rules across those routes.
 
 This is the FastAPI-oriented companion to the protocol-neutral **[RESTful API Deep Dive](../../apis/restful/README.md)**, which covers REST constraints, HTTP semantics, concurrency, caching, security, compatibility, and operations in depth.
 

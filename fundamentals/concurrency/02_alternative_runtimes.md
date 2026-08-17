@@ -2,6 +2,8 @@
 
 > **Who this is for**: Python developers who have read the [decision guide](00_decision_guide.md) and need to recognize when Python 3.14's `InterpreterPoolExecutor` or an optional free-threaded CPython build deserves evaluation. These are advanced deployment choices, not automatic upgrades.
 
+> **Key insight**: Removing or isolating the GIL changes parallel execution, but it does not remove extension compatibility, serialization, ownership, or deployment constraints.
+
 ---
 
 ## 1. Why These Runtimes Exist

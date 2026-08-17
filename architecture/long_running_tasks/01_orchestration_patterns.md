@@ -292,7 +292,7 @@ Worker catches exception
 | **Failure detection latency** | Configurable — set HeartbeatSeconds to desired ceiling |
 | **Worker coupling** | Medium — worker must know about the token and how to call back |
 | **Scalability** | Excellent — orchestrator holds no compute resources while waiting |
-| **Cost** | Excellent for managed services — Step Functions charges per state transition, not per second of waiting |
+| **Cost** | Standard Step Functions is transition-billed and supports callback tokens; Express is duration/memory billed and does not support `.waitForTaskToken` |
 | **When to use** | Cloud-native architectures, workflows that need guaranteed completion or cleanup |
 
 ### Key Distinction: Token Heartbeat vs Worker Heartbeat

@@ -174,7 +174,10 @@ The fundamental problem: between "I did the work" and "I told the broker I did t
 
 What vendors mean by "exactly-once":
 
-- **Kafka "exactly-once semantics"** — true *within Kafka*: producers write to Kafka exactly once, consumers read exactly once. The moment the consumer's output leaves Kafka (to a database, to an HTTP call), you're back to at-least-once unless the output is idempotent.
+- **Kafka "exactly-once semantics"** — a transactional read-process-write pipeline can commit
+  consumed offsets and produced Kafka records atomically. A consumer can still receive records
+  again before that transaction commits, and an output that leaves Kafka for a database or HTTP
+  service needs its own transactional coupling or idempotency boundary.
 - **SQS FIFO with deduplication** — dedup window of 5 minutes. Within that window, duplicates are dropped. Beyond it, duplicates slip through.
 
 ### The practical rule

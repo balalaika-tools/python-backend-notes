@@ -239,7 +239,7 @@ python-backend-notes/
 
 ### Operations — [full index](operations/README.md)
 
-[![pytest](https://img.shields.io/badge/pytest-8.x-0A9EDC.svg?logo=pytest&logoColor=white)](https://pytest.org)
+[![pytest](https://img.shields.io/badge/pytest-9.x-0A9EDC.svg?logo=pytest&logoColor=white)](https://pytest.org)
 [![Docker](https://img.shields.io/badge/Docker-latest-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com)
 
 | Guide | Description |
@@ -256,15 +256,27 @@ python-backend-notes/
 
 ### New to Python Backend
 
-1. [Core Concepts](fundamentals/core_concepts/README.md) — decorators, exceptions, logging, configuration
-2. [Concurrency](fundamentals/concurrency/README.md) — threads, processes, async, contextvars
-3. [HTTPX](fundamentals/httpx/README.md) — HTTP client internals
-4. [API Fundamentals](apis/01_api_fundamentals.md) — contracts, interaction styles, and failure semantics
-5. [FastAPI 01-03](fundamentals/fastapi/README.md) — parameters, DI, Pydantic
-6. [Database](fundamentals/database/README.md) — SQL foundations -> drivers -> ORM -> async patterns
-7. [Testing](operations/testing/README.md) — pytest + FastAPI, unit -> endpoint -> coverage
+**For**: Python developers building their first backend service.
+
+**Working result by entry 2**: run the FastAPI README's self-contained service and explain how
+FastAPI maps its request into the route function.
+
+1. **Do:** [FastAPI quick start](fundamentals/fastapi/README.md#quick-start-one-route-and-one-owned-http-client) — run one route and observe `200 {'provider': 'ok'}`.
+2. **Understand:** [HTTP requests and parameter mapping](fundamentals/fastapi/01_http_and_parameter_mapping.md) — predict which request field becomes each function argument.
+3. **Understand:** [Dependency injection](fundamentals/fastapi/02_dependency_injection.md) and [Pydantic](fundamentals/fastapi/03_pydantic.md) — add resource lifetimes and validated input/output boundaries.
+4. **Harden:** [Concurrency decision guide](fundamentals/concurrency/00_decision_guide.md), then the [HTTPX path](fundamentals/httpx/README.md) — choose the blocking model and bound outbound calls.
+5. **Persist:** [Databases and schemas](fundamentals/database/01_databases_and_schemas.md), then [SQLAlchemy ORM](fundamentals/database/03_sqlalchemy_orm.md) — create a constrained schema and map it without losing transaction boundaries.
+6. **Verify:** [Testing setup](operations/testing/02_setup.md), [unit tests](operations/testing/03_unit_testing.md), and [endpoint tests](operations/testing/04_endpoint_testing.md) — produce a passing unit and in-process HTTP suite.
+
+**Stop here if** you can serve, validate, persist, and test one bounded API. Continue into
+[Core Concepts](fundamentals/core_concepts/README.md) when you need reusable typing, lifetime,
+logging, configuration, or shutdown mechanisms.
 
 ### Building a Production API
+
+**For**: engineers hardening an existing API rather than learning the first route.
+
+**Working result by entry 2**: a resource/HTTP contract with an explicit production-hardening path.
 
 1. [API Fundamentals and Selection](apis/README.md) — contracts and interaction choices
 2. [RESTful APIs](apis/restful/README.md) — HTTP semantics, resources, reliability, security, and operations
@@ -276,7 +288,15 @@ python-backend-notes/
 8. [Structured Logging](fundamentals/core_concepts/structlog_guide.md) — structlog
 9. [Docker](operations/deployment/docker_and_deployment.md) — containerization
 
+**Stop here if** the deployed API has explicit authorization, error, observability, and shutdown
+contracts. Continue into the specialist REST chapters only when collections, caching, compatibility,
+or a specific failure mode requires them.
+
 ### Calling External APIs / LLMs
+
+**For**: services that call a provider under partial failure and shared quotas.
+
+**Working result by entry 2**: choose the interaction boundary and run a reusable bounded HTTP client.
 
 1. [API Styles and Selection](apis/02_api_styles_and_selection.md) — understand the integration boundary
 2. [HTTPX Guide](fundamentals/httpx/README.md) — understand the HTTP client
@@ -284,11 +304,19 @@ python-backend-notes/
 4. [Webhooks](apis/webhooks/README.md) — durable callbacks when a provider pushes events
 5. [Testing LLM Code](operations/testing/13_testing_llm_code.md) — prompt builders, adapters, schemas, evals
 
+**Stop here if** the provider call is bounded, retry-safe, and covered by deterministic adapter tests.
+Continue to webhooks only when the provider pushes durable events back to you.
+
 ### Background Work & Architecture
 
-1. [Background Work Overview](background_work/01_overview.md) — separate business, delivery, and execution responsibilities
-2. [Task or Workflow?](background_work/02_when_a_task_becomes_a_workflow.md) — choose the smaller lifecycle first
-3. [Minimal Durable Task](background_work/03_minimal_durable_task.md) — submit, claim, retry, and look up one independent job
-4. [Decision Guide](background_work/09_decision_guide.md) — validate the smallest runtime that meets the recovery contract
+**For**: services whose work must outlive the request or process that accepted it.
+
+**Working result by entry 2**: submit, claim, retry, and look up one durable task, then explain which
+state belongs to the application rather than the queue.
+
+1. **Do:** [Minimal Durable Task](background_work/03_minimal_durable_task.md) — build the smallest recoverable job and status endpoint.
+2. **Understand:** [Background Work Overview](background_work/01_overview.md) — separate business, delivery, execution, and scheduling state around that result.
+3. **Escalate deliberately:** [Task or Workflow?](background_work/02_when_a_task_becomes_a_workflow.md) — continue only when one job no longer captures the business lifecycle.
+4. **Decide:** [Decision Guide](background_work/09_decision_guide.md) — validate the smallest runtime that meets the recovery contract.
 
 **Stop here if** one durable task and a result endpoint meet the product need. Continue to the [full Background Work course](background_work/README.md) for stateful workflows, reliability protocols, fan-out, and production operations; use [Long-Running Tasks](architecture/long_running_tasks/README.md) for client delivery, callbacks, and infrastructure-specific patterns.

@@ -2,6 +2,8 @@
 
 > **Who this is for**: Teams taking a RESTful API from correct local behavior to a dependable production service. Assumes the preceding REST chapters.
 
+> **Key insight**: Tests prove selected contracts before release; telemetry and runbooks prove and restore those contracts under real failure.
+
 ---
 
 ## 1. Test the Contract, Not Only Functions
@@ -204,4 +206,3 @@ Useful runbook data:
 ---
 
 **Next**: [WebSocket Deep Dive](../websockets/README.md)
-

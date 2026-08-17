@@ -8,6 +8,82 @@
 
 ---
 
+## Quick start: one route and one owned HTTP client
+
+This self-contained service owns an `httpx.AsyncClient` for the application's lifetime and calls a
+local in-process provider, so it needs no network or credentials.
+
+Install `fastapi`, `httpx`, and `asgi-lifespan`, save this as `app.py`, then run `python app.py`:
+
+```python
+import asyncio
+from contextlib import asynccontextmanager
+
+import httpx
+from asgi_lifespan import LifespanManager
+from fastapi import FastAPI, Request
+
+
+provider = FastAPI()
+
+
+@provider.get("/status")
+async def provider_status() -> dict[str, str]:
+    return {"provider": "ok"}
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.http = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=provider),
+        base_url="http://provider.test",
+        timeout=httpx.Timeout(2.0),
+    )
+    try:
+        yield
+    finally:
+        await app.state.http.aclose()
+
+
+app = FastAPI(lifespan=lifespan)
+
+
+@app.get("/provider-status")
+async def read_provider_status(request: Request) -> dict[str, str]:
+    response = await request.app.state.http.get("/status")
+    response.raise_for_status()
+    return response.json()
+
+
+async def main() -> None:
+    async with LifespanManager(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://service.test"
+        ) as client:
+            response = await client.get("/provider-status")
+            print(response.status_code, response.json())
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+The success signal is exactly:
+
+```text
+200 {'provider': 'ok'}
+```
+
+If startup ownership is missing, the common tell is `AttributeError: 'State' object has no
+attribute 'http'`; constructing a client per request instead hides the error but defeats pooling.
+
+> **Production:** The local transport deliberately removes DNS, TLS, and provider failure. Keep the
+> lifetime pattern, then add bounded admission, separate total and transport deadlines, eligible
+> retries, and observability through [Safe and Scalable API Calls](safe_and_scalable_api_calls/README.md).
+
+---
+
 ## Contents
 
 ### Core Guides
@@ -54,34 +130,7 @@
 
 ---
 
-## Quick Reference
-
-### Minimal Safe External Call Pattern
-
-```python
-import asyncio
-import httpx
-from aiolimiter import AsyncLimiter
-
-client = httpx.AsyncClient(
-    limits=httpx.Limits(max_connections=50),
-    timeout=httpx.Timeout(connect=5.0, read=30.0),
-)
-
-sem = asyncio.Semaphore(50)
-rate = AsyncLimiter(60, 60)
-
-
-async def call_api(payload: dict):
-    async with asyncio.timeout(5):           # queue timeout
-        async with rate:                      # throughput
-            async with sem:                   # concurrency
-                async with asyncio.timeout(30):  # call timeout
-                    response = await client.post(url, json=payload)
-                    return response.json()
-```
-
-### Architecture Layers
+## Architecture Layers
 
 ```
 API Gateway → ASGI Server → FastAPI → HTTP Client → Vendor
@@ -94,5 +143,11 @@ API Gateway → ASGI Server → FastAPI → HTTP Client → Vendor
 
 ## Reading Path
 
-1. **First**: [HTTPX Guide](../httpx/README.md) — understand the HTTP client
-2. **Then**: [Safe API Calls](safe_and_scalable_api_calls/README.md) — apply to production
+**Working result by entry 1**: run the quick start above and observe the provider response.
+
+1. **Do:** run the [quick start](#quick-start-one-route-and-one-owned-http-client).
+2. **Understand:** [HTTPX Guide](../httpx/README.md) — trace client, pool, transport, and timeout behavior.
+3. **Harden:** [Safe API Calls](safe_and_scalable_api_calls/README.md) — add admission, retry classification, shared limits, and operations.
+
+**Stop here if** one owned client with a bounded call meets the service's dependency contract.
+Continue when concurrency, retries, streaming, multiple pods, or provider quota becomes relevant.

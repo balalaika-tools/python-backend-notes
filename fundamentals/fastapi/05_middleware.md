@@ -1,6 +1,12 @@
 # FastAPI Middleware
 
+<!-- length-justification: This is the canonical FastAPI middleware reference; request/response ordering, ASGI behavior, CORS, observability, security, and composition remain together because outer-layer order changes every downstream route. -->
+
+> **Who this is for**: FastAPI engineers who can build routes and need cross-cutting request/response behavior with predictable ordering and failure handling.
+
 A complete guide to middleware in FastAPI -- from mental model to production patterns.
+
+> **Key insight**: Middleware owns a nested request/response lifetime, so registration order determines which layer observes, transforms, or loses each failure and response.
 
 ---
 

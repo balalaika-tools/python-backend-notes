@@ -22,7 +22,17 @@
 
 ## Reading Order
 
-Read the protocol lifecycle first. The remaining files progress from the application contract to reliability, security, fleet architecture, and implementation.
+**Working result by entry 2**: run the implementation baseline, then explain its handshake,
+message, and close lifecycle.
+
+1. **Do:** [Implementation, Testing, and Operations](06_implementation_testing_and_operations.md) — run the bounded single-reader/single-writer baseline.
+2. **Understand:** [Protocol and Connection Lifecycle](01_protocol_and_connection_lifecycle.md) — trace upgrade, messages, control frames, and closure.
+3. **Define:** [Message Protocols and Contracts](02_message_protocols_and_contracts.md) — add versioned commands, events, correlation, and errors.
+4. **Harden:** revisit the implementation after [Reliability](03_reliability_reconnection_and_flow_control.md) and [Security](04_authentication_and_security.md).
+5. **Scale only when needed:** [Distributed Architecture](05_scaling_and_distributed_architecture.md).
+
+**Stop here if** one instance, bounded queues, and reconnect-from-source-of-truth satisfy the use
+case. Continue into distributed architecture only when connections span processes or regions.
 
 ---
 
@@ -30,4 +40,3 @@ Read the protocol lifecycle first. The remaining files progress from the applica
 
 - [API Fundamentals](../01_api_fundamentals.md)
 - [FastAPI WebSockets](../../fundamentals/fastapi/06_websockets.md) for framework-specific patterns
-

@@ -1,6 +1,12 @@
 # Part 4: Kubernetes and Distributed Systems
 
+<!-- length-justification: This is the Kubernetes continuation for outbound-call controls; replica multiplication, shared quotas, autoscaling, disruption, ingress, and shutdown remain together because each changes the effective global budget. -->
+
+> **Who this is for**: Engineers who already bound calls in one process and need those guarantees to survive multiple Kubernetes pods and autoscaling.
+
 > **Principle**: Per-pod rate limiters are process-local. Vendor limits are global.
+
+> **Key insight**: Replication multiplies every process-local allowance, so a global promise requires either partitioned budgets or one atomic shared decision.
 
 > **See also**: [Part 9 — Distributed Admission Control](09_distributed_admission_control.md) for the full Redis-centric pattern. This file establishes *why* per-pod limiters fail at scale; Part 9 covers the production-grade replacement (atomic Lua admission scripts, key taxonomy, retries-vs-quota accounting). The `GlobalVendorRateLimiter` shown below is a minimal example of the broader admission controller pattern.
 

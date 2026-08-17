@@ -811,20 +811,20 @@ op.execute("UPDATE users SET status = 'active' WHERE status IS NULL")
 ```python
 from alembic import op
 import sqlalchemy as sa
-from datetime import datetime
+from datetime import UTC, datetime
 
 roles_table = sa.table(
     "roles",
     sa.column("id", sa.Integer),
     sa.column("name", sa.String),
-    sa.column("created_at", sa.DateTime),
+    sa.column("created_at", sa.DateTime(timezone=True)),
 )
 
 def upgrade() -> None:
     op.bulk_insert(roles_table, [
-        {"id": 1, "name": "admin", "created_at": datetime.utcnow()},
-        {"id": 2, "name": "editor", "created_at": datetime.utcnow()},
-        {"id": 3, "name": "viewer", "created_at": datetime.utcnow()},
+        {"id": 1, "name": "admin", "created_at": datetime.now(UTC)},
+        {"id": 2, "name": "editor", "created_at": datetime.now(UTC)},
+        {"id": 3, "name": "viewer", "created_at": datetime.now(UTC)},
     ])
 ```
 

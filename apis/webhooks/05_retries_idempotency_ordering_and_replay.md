@@ -2,6 +2,8 @@
 
 > **Who this is for**: Producers and consumers defining honest delivery guarantees and recovery behavior. Assumes the preceding webhook chapters.
 
+> **Key insight**: At-least-once delivery is made safe by stable event identity and idempotent effects; ordering and replay are separate contracts.
+
 ---
 
 ## 1. Why Duplicates Are Normal

@@ -2,6 +2,8 @@
 
 > **Who this is for**: Engineers securing browser and service WebSocket channels from handshake through every message. Assumes [Protocol and Connection Lifecycle](01_protocol_and_connection_lifecycle.md).
 
+> **Key insight**: WebSocket authorization is a connection-lifetime decision: authenticate the handshake, authorize each operation, and re-evaluate long-lived sessions when authority changes.
+
 ---
 
 ## 1. Security Spans the Connection Lifetime
@@ -183,4 +185,3 @@ Metrics must use bounded labels. Connection ID, user ID, topic ID, and raw close
 ---
 
 **Next**: [Scaling and Distributed Architecture](05_scaling_and_distributed_architecture.md)
-

@@ -2,6 +2,8 @@
 
 > **Who this is for**: Teams receiving webhooks that must authenticate senders, absorb duplicates, and process events without request-time fragility. Assumes [Delivery Model](01_delivery_model_and_event_contracts.md).
 
+> **Key insight**: A safe consumer authenticates and durably admits raw events before acknowledging them, then makes downstream effects idempotent.
+
 ---
 
 ## 1. The Safe Ingress Pipeline

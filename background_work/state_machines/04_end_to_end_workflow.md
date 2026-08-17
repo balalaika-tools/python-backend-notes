@@ -1,5 +1,7 @@
 # One Workflow, From API Command to Crash Recovery
 
+<!-- length-justification: This is the canonical end-to-end composition check for the background-work collection; command, transaction, outbox, broker hint, lease, provider effect, completion, and reconciliation remain together so every crash window can be traced against one workflow identity. -->
+
 > **Who this is for**: Engineers assembling a database-backed state machine, broker delivery, and workers into one recoverable lifecycle.
 
 Before reading this, understand the schema and compare-and-set boundary in **[Database-Backed State Machines](02_database_backed_state_machine.md)**.

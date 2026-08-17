@@ -18,10 +18,10 @@ Before reading this guide, understand HTTPX internals:
 
 ## Core Principle
 
-> **Concurrency is a transport-layer reality.**
-> **Anything that does not limit sockets is advisory.**
-
-The only hard concurrency limit in an external API system is imposed by the **HTTP client** via the number of simultaneously open sockets.
+Concurrency exists at several boundaries. A semaphore can strictly cap admitted application work,
+while the HTTP client's pool strictly caps simultaneous connections. Neither cap substitutes for
+the other: queued coroutines still consume memory, and a socket cap alone does not enforce tenant or
+provider policy.
 
 ---
 
@@ -48,7 +48,7 @@ The only hard concurrency limit in an external API system is imposed by the **HT
 A safe production stack requires all of these:
 
 1. **Client connection limits** — hard physical cap on sockets
-2. **Client transport timeouts** — real request termination
+2. **Client transport timeouts** — phase/inactivity bounds for connect, pool, write, and read waits
 3. **Semaphore** — logical concurrency gate
 4. **Rate limiter** — vendor quota compliance
 5. **Application timeout** — task cancellation & system safety
@@ -134,11 +134,11 @@ async def call_api(payload: dict):
 ## Common Mistakes This Guide Prevents
 
 ❌ Client without connection limits (unbounded sockets)
-❌ Relying only on `asyncio.timeout` for request termination
+❌ Using only one total deadline without phase limits or failure-specific diagnostics
 ❌ Semaphore inside retry loop (holding resource during sleep)
 ❌ No queue timeout (unbounded queues)
 ❌ Per-pod rate limiters for vendor protection
-❌ In-memory circuit breakers in multi-pod setups
+❌ One circuit-breaker state shared across unrelated dependency partitions or failure domains
 ❌ Catching only `asyncio.TimeoutError` (missing httpx exceptions)
 ❌ Retrying queue timeouts (amplifies overload)
 
@@ -148,9 +148,15 @@ async def call_api(payload: dict):
 
 ### For Beginners
 
-1. Read [Core Concepts](01_core_concepts.md) — understand the mental model
-2. Read [Concurrency & Timeouts](02_concurrency_and_timeouts.md) — understand timeout layers
-3. Read [Call Patterns](03_call_patterns.md) — implement the gold standard pattern
+**Working result by entry 2**: run the Quick Start above, then explain why admission failure and a
+downstream attempt timeout take different retry paths.
+
+1. **Do:** run the [Quick Start](#quick-start) and observe either the provider response or a named exception.
+2. **Understand:** [Core Concepts](01_core_concepts.md) and [Concurrency & Timeouts](02_concurrency_and_timeouts.md).
+3. **Harden:** [Call Patterns](03_call_patterns.md) — add the canonical composition and failure mapping.
+
+**Stop here if** one process owns the quota and only idempotent operations are retried. Continue to
+distributed admission or idempotency when those conditions stop holding.
 
 ### For Production Deployment
 
@@ -189,7 +195,7 @@ FastAPI
   ├─ Load shedding (local)
   ├─ User rate limiter (Redis)
   ├─ Queue timeout
-  ├─ Circuit breaker (Redis)
+  ├─ Circuit breaker (scoped to the dependency failure domain)
   ├─ Global vendor limiter (Redis)
   ├─ Local rate limiter
   ├─ Semaphore

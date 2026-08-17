@@ -2,6 +2,8 @@
 
 > **Who this is for**: Developers who know Python objects and need to reason about which state can safely cross task, thread, process, or deployment boundaries. Read the [decision guide](00_decision_guide.md) first.
 
+> **Key insight**: Concurrency safety begins with reachability and ownership; a primitive is correct only when it protects the actual state-sharing boundary.
+
 ---
 
 ## 1. Start with Reachability and Ownership

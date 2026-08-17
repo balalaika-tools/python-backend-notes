@@ -2,6 +2,8 @@
 
 > **Who this is for**: Producers and consumers protecting both inbound event authenticity and outbound request destinations. Assumes the producer and consumer architecture chapters.
 
+> **Key insight**: Signatures move message authenticity to a shared secret; destination policy separately prevents an authenticated customer configuration from steering requests into trusted networks.
+
 ---
 
 ## 1. Two Different Security Boundaries

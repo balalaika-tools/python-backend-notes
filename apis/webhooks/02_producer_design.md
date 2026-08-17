@@ -2,6 +2,8 @@
 
 > **Who this is for**: Teams building outbound webhook infrastructure that must survive transactions, endpoint failures, and fleet scale. Assumes [Delivery Model and Event Contracts](01_delivery_model_and_event_contracts.md).
 
+> **Key insight**: A webhook producer owns a durable delivery state machine, not an HTTP call; transaction gaps and retry classification determine whether events disappear or duplicate.
+
 ---
 
 ## 1. Producer Responsibilities

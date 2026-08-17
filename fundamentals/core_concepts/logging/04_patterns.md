@@ -4,6 +4,8 @@
 > configured, how records are routed, and how that configuration behaves under
 > frameworks, tests, multiple processes, and production collectors.
 
+> **Key insight**: Applications own logging configuration once at the process boundary; libraries emit named records and must not seize global destinations.
+
 The default for most applications is simple: configure handlers once at the
 entry point, create `getLogger(__name__)` loggers everywhere else, and let records
 propagate to root.

@@ -4,6 +4,8 @@
 > route records to consoles, files, or background logging threads without
 > blocking async code or losing important context.
 
+> **Key insight**: Loggers name events, handlers own destinations, formatters render records, and queues move destination work off latency-sensitive threads.
+
 A logger expresses an event. A handler owns a destination. A formatter owns its
 presentation. A filter applies policy that levels alone cannot express.
 

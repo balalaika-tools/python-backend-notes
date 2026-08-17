@@ -1,6 +1,10 @@
 # 03 — Unit Testing
 
+> **Who this is for**: Python backend engineers who want fast tests that isolate business logic from HTTP, databases, and external services.
+
 > **Purpose**: Test pure logic in isolation — no ASGI, no DB, no network. The fastest feedback loop you have.
+
+> **Key insight**: A unit test narrows the causal search space by replacing boundaries; avoiding I/O is a consequence, not the purpose.
 
 A unit test exercises one function or class with its dependencies faked out. It runs in milliseconds, fails deterministically, and tells you *exactly* where a regression lives. If every test in your suite goes through `TestClient`, you do not have unit tests — you have slow integration tests.
 
@@ -242,12 +246,16 @@ async def get_user(user_id: int):
     return await user_service.get(user_id)
 ```
 
+The import statement binds the object to the name `user_service` inside
+`app.routers.users`. The route resolves that local name when it runs. Replacing an attribute in a
+different module does not replace the already-bound name used by the route.
+
 ```python
-# ❌ Patching where it's defined — doesn't affect the import in users.py
+# ❌ Replacing a different module's name leaves users.py's bound name unchanged
 with patch("app.services.user_service.get"):
     ...
 
-# ✅ Patch where it's USED (imported)
+# ✅ Replace the name resolved by the module under test
 with patch("app.routers.users.user_service.get"):
     ...
 ```

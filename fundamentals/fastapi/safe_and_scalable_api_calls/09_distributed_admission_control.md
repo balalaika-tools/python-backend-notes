@@ -16,7 +16,11 @@
 
 ## 1. Why "Redis + if statements" Is the Real Pattern
 
-Parts 1–3 of this guide focused on the **transport layer**: the only hard concurrency limit is the HTTP client's socket pool. That's still true. But there's a second, equally important layer: **distributed admission control** — the application-layer decision of "should this request even start?".
+Parts 1–3 distinguish application admission from transport capacity. A local semaphore strictly
+caps attempts in one process, while HTTPX limits connections and the negotiated protocol determines
+how many request streams those connections can carry. Neither produces a fleet-wide promise.
+**Distributed admission control** adds that shared application decision: “should this request even
+start anywhere in the fleet?”
 
 For that decision, in-process tools are the wrong abstraction:
 

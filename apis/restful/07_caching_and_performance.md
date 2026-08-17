@@ -2,6 +2,8 @@
 
 > **Who this is for**: API owners reducing latency and load without serving stale, private, or incorrectly varied data. Assumes [HTTP Semantics](02_http_semantics.md).
 
+> **Key insight**: Cache invalidation is an ordering contract: every reusable response must remain distinguishable from state that superseded it.
+
 ---
 
 ## 1. Caching Is Contract Behavior
@@ -170,4 +172,3 @@ Test at least:
 ---
 
 **Next**: [REST API Security](08_security.md)
-

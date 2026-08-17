@@ -1,6 +1,10 @@
 # Idempotency Keys
 
+> **Who this is for**: API engineers who retry state-changing requests and need one logical operation to produce at most one durable business effect.
+
 > Retries without idempotency double-charge customers, send duplicate emails, and ship two of the same order. An idempotency key turns "did the first attempt succeed?" from an unanswerable question into a server-side lookup. This guide explains why retries *require* idempotency, how the key flows through the stack, and how to implement the server side safely.
+
+> **Key insight**: An idempotency key is durable operation identity; safety comes from binding that identity to one request meaning and one recorded outcome.
 
 ---
 

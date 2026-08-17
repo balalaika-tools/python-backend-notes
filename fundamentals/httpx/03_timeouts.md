@@ -1,6 +1,8 @@
 # HTTPX Timeouts
 
-> **Core idea**: HTTPX uses phase-based timeouts, not a single global timeout.
+> **Who this is for**: Python engineers who use HTTPX and need phase limits plus an explicit end-to-end deadline for outbound calls.
+
+> **Key insight**: HTTPX phase timers bound individual waits; an application deadline separately bounds the total operation across phases and retries.
 
 ---
 

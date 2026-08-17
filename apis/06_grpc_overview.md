@@ -2,6 +2,8 @@
 
 > **Who this is for**: Engineers evaluating typed service-to-service RPC or integrating an existing gRPC service.
 
+> **Key insight**: Generated call syntax preserves a typed contract, but the call still has network ambiguity, deadlines, compatibility rules, and retry semantics.
+
 ---
 
 ## 1️⃣ The Mental Model

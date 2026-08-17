@@ -26,11 +26,18 @@
 
 ### New to Python Backend
 
-1. [core_concepts/](core_concepts/README.md) — decorators, exceptions, logging, configuration
-2. [concurrency/](concurrency/README.md) — threads, processes, async
-3. [httpx/](httpx/README.md) — HTTP client internals
-4. [fastapi/ 01-03](fastapi/README.md) — parameters, DI, Pydantic
-5. [database/](database/README.md) — SQL → drivers → ORM → async patterns
+**Working result by entry 2**: run one FastAPI route and explain its request mapping.
+
+1. **Do:** [FastAPI quick start](fastapi/README.md#quick-start-one-route-and-one-owned-http-client) — observe the exact `200` response.
+2. **Understand:** [HTTP and parameter mapping](fastapi/01_http_and_parameter_mapping.md) — trace request data into a function signature.
+3. **Compose:** [Dependency injection](fastapi/02_dependency_injection.md) and [Pydantic](fastapi/03_pydantic.md) — own resources and validate boundaries.
+4. **Choose execution:** [Concurrency decision guide](concurrency/00_decision_guide.md) — select async, threads, or processes from the blocking boundary.
+5. **Call dependencies:** [HTTPX mental model](httpx/01_mental_model.md), [pooling](httpx/02_connection_pooling.md), and [timeouts](httpx/03_timeouts.md).
+6. **Persist:** [Database foundations](database/01_databases_and_schemas.md), then [SQLAlchemy ORM](database/03_sqlalchemy_orm.md).
+
+**Stop here if** you can build one validated route with an owned dependency and constrained schema.
+Continue into [Core Concepts](core_concepts/README.md) when the application needs reusable language,
+logging, configuration, or shutdown mechanisms.
 
 ### Building a Production API
 

@@ -146,4 +146,12 @@ These produce spans for every request, DB query, and outbound HTTP call without 
 | Auto-instrumentation | Vendor-specific | OTel contrib libraries cover FastAPI, SQLAlchemy, httpx, Redis, etc. |
 | Traces + metrics + logs | Fragmented | One SDK for all three signals |
 
-> **Key insight**: If you instrument with the Prometheus client directly for metrics and Datadog for traces, you now have two mental models. OTel is one model for all three signals, with backends chosen at deploy time.
+That separation also reduces the number of instrumentation models in application code. A service
+can describe traces and metrics through OTel while deployment configuration selects one or several
+backends; the benefit is the stable instrumentation boundary, not merely a longer exporter list.
+
+Do not add OTel merely for architectural symmetry. A small service whose existing vendor agent
+already provides the required traces, metrics, log correlation, and retention—and whose team has no
+portability or multi-backend requirement—may gain only another SDK and failure path. Introduce OTel
+when the stable instrumentation boundary, cross-service propagation, or Collector routing solves a
+named problem.

@@ -4,6 +4,8 @@
 > reliable mental model for application logging before learning logger hierarchy,
 > handlers, or structured logging.
 
+> **Key insight**: A log call creates an event record; configuration independently decides whether that record survives and which destination renders it.
+
 Logging records facts about a running system. Unlike `print()`, a log call
 creates a record with a level, logger name, timestamp, call site, message, and
 optional exception/context. Configuration decides which records survive and

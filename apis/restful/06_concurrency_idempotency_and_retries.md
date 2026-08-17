@@ -2,6 +2,8 @@
 
 > **Who this is for**: API designers handling concurrent writers, network ambiguity, and safe client recovery. Assumes [HTTP Semantics](02_http_semantics.md).
 
+> **Key insight**: Retry safety is a property of durable operation identity and effects, not of a transport failure or method name alone.
+
 ---
 
 ## 1. Distributed Outcomes Are Uncertain

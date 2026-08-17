@@ -1,6 +1,10 @@
 # 09 — Mocking External Services
 
+> **Who this is for**: Backend engineers who need deterministic tests around HTTP, cloud SDK, queue, or other external boundaries.
+
 > **Purpose**: Intercept external calls (HTTP, AWS, queues) in tests without hitting the real service. Know which tool belongs in which layer.
+
+> **Key insight**: Mock the first interface you do not own, then use a separate contract test to verify that your model of that interface still matches reality.
 
 Your endpoint calls an external API. You don't want tests to:
 
@@ -116,16 +120,25 @@ class PaymentService:
         ...
 
 
+async def checkout(service: PaymentService, user_id: int, amount: float) -> str:
+    result = await service.charge(user_id=user_id, amount=amount)
+    return f"receipt:{result['id']}"
+
+
 # tests/test_payments.py
 async def test_charge_user():
     mock_service = AsyncMock()
     mock_service.charge.return_value = {"status": "success", "id": "ch_123"}
 
-    result = await mock_service.charge(user_id=1, amount=99.99)
+    result = await checkout(mock_service, user_id=1, amount=99.99)
 
-    assert result["status"] == "success"
+    assert result == "receipt:ch_123"
     mock_service.charge.assert_called_once_with(user_id=1, amount=99.99)
 ```
+
+The test now exercises application-owned behavior—the receipt mapping—while the mock stands in for
+the first external boundary. Calling the mock directly would prove only that `AsyncMock` returned
+the value the test itself configured.
 
 Use `AsyncMock` when you are injecting the mock directly — as a constructor argument, a fixture, or a `Depends` override. It is cleaner than `patch` because there is no import path to get wrong.
 
@@ -161,12 +174,16 @@ async def get_user(user_id: int):
     return await user_service.get(user_id)
 ```
 
+`from ... import user_service` binds that object to a name in `app.routers.users`. At call time the
+route resolves its own module's name, so changing only `app.services.user_service` may leave the
+bound reference untouched.
+
 ```python
-# ❌ Patching where it's defined — doesn't affect the import in users.py
+# ❌ This may replace a different name from the one the route resolves
 with patch("app.services.user_service.get"):
     ...
 
-# ✅ Patch where it's USED (imported)
+# ✅ Replace the name in the module under test
 with patch("app.routers.users.user_service.get"):
     ...
 ```

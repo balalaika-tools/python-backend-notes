@@ -1,6 +1,10 @@
 # 10 — Test Patterns
 
+> **Who this is for**: Backend engineers who already write tests and want reusable patterns that preserve behavioral meaning as the suite grows.
+
 > **Purpose**: Patterns that apply across every test you write — happy path, errors, edge cases, parametrization, snapshot testing, and how to structure files that don't rot.
+
+> **Key insight**: Durable tests assert externally meaningful state transitions; parametrization and snapshots only compress those contracts.
 
 ---
 
@@ -190,13 +194,27 @@ pip install syrupy
 ```
 
 ```python
-def test_get_user_shape(client, snapshot):
-    resp = client.get("/users/42")
+async def test_get_user_shape(client, make_user, snapshot):
+    user = await make_user(username="alice", email="alice@example.com")
+    resp = await client.get(f"/users/{user.id}")
     assert resp.status_code == 200
     assert resp.json() == snapshot
 ```
 
-First run stores the response in `__snapshots__/`. Subsequent runs compare. Any diff fails the test; `pytest --snapshot-update` blesses the new shape.
+The initial approved snapshot contains the stable contract fields, for example:
+
+```text
+{
+  'email': 'alice@example.com',
+  'id': 1,
+  'username': 'alice',
+}
+```
+
+First run stores the response in `__snapshots__/`; run `pytest --snapshot-update` only after
+reviewing that initial value. A subsequent successful run reports `1 passed`. A field addition,
+removal, or rename produces a snapshot diff and a failed test instead of silently updating the
+contract.
 
 Snapshot tests catch things unit tests don't: accidental field renames, extra fields leaking out, ordering changes. Pair with OpenAPI schema export for a second layer — dump `app.openapi()` into a file, commit it, diff in CI on every change.
 
@@ -208,8 +226,10 @@ Don't snapshot timestamps, auto-IDs, or UUIDs — they change every run. Use `sy
 from syrupy.matchers import path_type
 
 
-def test_user_shape_stable(client, snapshot):
-    resp = client.get("/users/42")
+async def test_user_shape_stable(client, make_user, snapshot):
+    user = await make_user(username="alice", email="alice@example.com")
+    resp = await client.get(f"/users/{user.id}")
+    assert resp.status_code == 200
     assert resp.json() == snapshot(
         matcher=path_type({"id": (int,), "created_at": (str,)}),
     )

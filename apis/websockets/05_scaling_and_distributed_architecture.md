@@ -2,6 +2,8 @@
 
 > **Who this is for**: Engineers moving from one-process connection managers to a multi-instance or multi-region WebSocket service. Assumes [Reliability](03_reliability_reconnection_and_flow_control.md) and [Security](04_authentication_and_security.md).
 
+> **Key insight**: Each socket has one live owner; scaling works by routing messages to that owner while durable state and replay live outside the connection process.
+
 ---
 
 ## 1. A Connection Has One Live Owner
@@ -206,4 +208,3 @@ The fallback should be explicit: disconnect and resume, serve a fresh snapshot, 
 ---
 
 **Next**: [Implementation, Testing, and Operations](06_implementation_testing_and_operations.md)
-

@@ -2,6 +2,8 @@
 
 > **Who this is for**: Developers who need to protect shared in-process state or coordinate raw threads. Prefer [ThreadPoolExecutor](01_thread_pool_executor.md) for independent calls; use these primitives when workers genuinely share an invariant or lifecycle.
 
+> **Key insight**: Synchronization protects an invariant, not a line of code; the smallest primitive that covers the full read-modify-write relationship is the correct one.
+
 The backend default is still simple: prefer ownership transfer through queues, immutable messages, one clear lock around shared state, or an external system such as Redis/PostgreSQL. Reach for clever synchronization only when the simpler design has a measured problem.
 
 ---

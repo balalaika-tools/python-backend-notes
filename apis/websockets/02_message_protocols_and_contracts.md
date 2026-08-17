@@ -2,6 +2,8 @@
 
 > **Who this is for**: Engineers designing the application protocol that runs inside a WebSocket channel. Assumes [Protocol and Connection Lifecycle](01_protocol_and_connection_lifecycle.md).
 
+> **Key insight**: WebSocket supplies ordered message transport on one connection; the application must still define message identity, versioning, correlation, validation, and error semantics.
+
 ---
 
 ## 1. WebSocket Gives You a Channel, Not an API
@@ -200,4 +202,3 @@ AsyncAPI can describe channels and messages, but application state machines and 
 ---
 
 **Next**: [Reliability, Reconnection, and Flow Control](03_reliability_reconnection_and_flow_control.md)
-

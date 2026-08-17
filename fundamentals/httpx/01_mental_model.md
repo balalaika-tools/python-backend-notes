@@ -1,6 +1,8 @@
 # HTTPX Mental Model
 
-> **Core idea**: Understand what happens at each layer when you make a request.
+> **Who this is for**: Python engineers who can send HTTP requests and want to predict where connection reuse, timeouts, and failures occur inside HTTPX.
+
+> **Key insight**: An HTTPX request crosses distinct client, pool, transport, socket, TLS, and HTTP layers; the layer that fails determines both the exception and the safe recovery.
 
 ---
 

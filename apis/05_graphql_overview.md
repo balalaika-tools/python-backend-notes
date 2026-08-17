@@ -2,6 +2,8 @@
 
 > **Who this is for**: Engineers who understand request-response APIs and need to recognize when GraphQL's client-selected graph is useful.
 
+> **Key insight**: GraphQL moves response-shape choice to the consumer while leaving authorization and data-access cost with the server.
+
 ---
 
 ## 1️⃣ The Mental Model
@@ -166,4 +168,3 @@ GraphQL and REST can coexist: GraphQL may serve as a client-facing aggregation l
 ---
 
 **Next**: [gRPC Overview](06_grpc_overview.md)
-

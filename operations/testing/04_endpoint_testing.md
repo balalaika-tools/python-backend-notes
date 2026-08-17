@@ -1,6 +1,10 @@
 # 04 — Endpoint Testing
 
+> **Who this is for**: FastAPI engineers who need to verify routing, validation, middleware, dependencies, and response contracts through in-process HTTP.
+
 > **Purpose**: Exercise your FastAPI routes through HTTP — parameters, middleware, validation, status codes — without a real network.
+
+> **Key insight**: In-process HTTP tests exercise the application protocol boundary, but they do not prove production DNS, TLS, proxy, or socket behavior.
 
 This is where FastAPI's testability pays off: the ASGI app is a callable, so you can drive it in-process with no server running.
 

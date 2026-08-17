@@ -29,6 +29,19 @@ auth/
 | [jwt.md](./jwt.md) | [cognito/tokens.md](./cognito/tokens.md) |
 | [oauth2.md](./oauth2.md) | [cognito/oauth-jwt-guide.md](./cognito/oauth-jwt-guide.md) |
 
+### First-time route
+
+**Working result by entry 2**: validate a token against an issuer contract, then explain how OAuth
+delegates the authority represented by that token.
+
+1. **Do:** [JWT validation](jwt.md) — pin the algorithm and validate issuer, audience, and freshness.
+2. **Understand:** [OAuth 2.0](oauth2.md) — choose the authorization flow and scope boundary.
+3. **Apply to Cognito:** [Cognito mental model](cognito/cognito.md), then [Cognito tokens](cognito/tokens.md).
+4. **Integrate when needed:** [OAuth in Cognito](cognito/oauth-jwt-guide.md) and [User Pool configuration](cognito/user-pool.md).
+
+**Stop here if** framework-neutral JWT validation and OAuth delegation answer the integration.
+Continue into Cognito only when Cognito is the actual issuer or authorization server.
+
 ---
 
 ## Quick Decision Guide

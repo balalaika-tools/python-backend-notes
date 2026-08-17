@@ -1,6 +1,12 @@
 # 11 - API Security
 
+<!-- length-justification: This is the canonical FastAPI endpoint-security survey; object, function, and property authorization, abuse controls, browser boundaries, SSRF, uploads, and audit evidence remain together because reviews must trace one request through all of them. -->
+
+> **Who this is for**: FastAPI engineers who already authenticate callers and need to enforce authorization and abuse controls at each endpoint boundary.
+
 > **Purpose**: Build FastAPI endpoints that refuse the wrong caller, the wrong object, the wrong field, the wrong origin, the wrong cost, and the wrong evidence trail by default.
+
+> **Key insight**: Authentication supplies a principal; security is the repeated decision that binds that principal to this operation, object, property, state, and resource budget.
 
 For a framework-neutral threat model and review checklist, see **[REST API Security](../../apis/restful/08_security.md)**. For callback-specific signing and SSRF controls, see **[Webhook Signatures, Security, and SSRF](../../apis/webhooks/04_signatures_security_and_ssrf.md)**.
 

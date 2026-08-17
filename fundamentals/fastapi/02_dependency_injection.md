@@ -1,6 +1,12 @@
 # FastAPI Dependency Injection
 
+<!-- length-justification: This is the canonical FastAPI dependency-resolution reference; callable graphs, caching, yield cleanup, class dependencies, overrides, and testing remain together because they share one per-request resolver and lifetime model. -->
+
+> **Who this is for**: FastAPI engineers who can write routes and want to share request-scoped logic and resources without obscuring ownership or cleanup.
+
 A complete guide to FastAPI's built-in dependency injection system — from mental model to production patterns.
+
+> **Key insight**: `Depends` declares a per-request callable graph; it does not replace arbitrary Python objects or create a general-purpose service container.
 
 ---
 

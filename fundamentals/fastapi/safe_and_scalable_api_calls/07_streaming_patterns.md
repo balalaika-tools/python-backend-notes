@@ -1,6 +1,12 @@
 # Part 7: Streaming Response Patterns
 
+<!-- length-justification: This is the canonical bounded-stream implementation note; finite streams, SSE, deadlines, admission ownership, heartbeats, buffering, cancellation, and testing remain together because all retain resources across the response lifetime. -->
+
+> **Who this is for**: Engineers who already understand bounded outbound calls and need to apply admission, timeout, and cleanup rules to long-lived streamed responses.
+
 > **Principle**: Streaming changes timeout semantics, concurrency accounting, and cancellation behavior.
+
+> **Key insight**: A streaming permit belongs to the entire body lifetime, not merely to the instant response headers are created.
 
 ---
 

@@ -27,7 +27,17 @@ Redis is an **in-memory data structure store** that serves data over TCP. It is 
 
 ## Learning Path
 
-**New to Redis** → Start with `01` (data structures) to understand what Redis offers beyond simple key-value.
+### New to Redis
+
+**Working result by entry 1**: connect, set one expiring string, read it back, and observe the value
+and remaining time to live in the opening baseline of `01`.
+
+1. **Do:** [Data Structures](01_data_structures.md), but stop after the string/hash baseline and expiration trace.
+2. **Understand:** [Python Clients](04_python_clients.md) — own one async client and its pool for the application lifetime.
+
+**Stop here if** the application only needs bounded key/value state or caching. Continue into the
+relevant branch below; lists, sets, sorted sets, streams, eviction, and the full command lookup are
+reference material, not prerequisites.
 
 **Building real-time features** → Read `02` for Pub/Sub and Streams patterns.
 

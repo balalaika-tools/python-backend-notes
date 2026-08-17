@@ -2,6 +2,8 @@
 
 > **Who this is for**: API designers translating domain capabilities into stable resource-oriented HTTP contracts. Assumes [HTTP Semantics](02_http_semantics.md).
 
+> **Key insight**: A resource boundary follows stable identity, lifecycle, and authorization—not the current database layout.
+
 ---
 
 ## 1. Start with Domain Boundaries
@@ -225,4 +227,3 @@ Avoid returning writable internal fields such as `tenant_id`, `is_admin`, fraud 
 ---
 
 **Next**: [Representations, Validation, and Errors](04_representations_validation_and_errors.md)
-

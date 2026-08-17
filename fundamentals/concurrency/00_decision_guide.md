@@ -2,6 +2,8 @@
 
 > **Who this is for**: Python backend developers choosing an execution model before they write concurrency code. This guide assumes normal synchronous Python knowledge but no prior concurrency model.
 
+> **Key insight**: Choose the execution model from the blocking boundary and state-sharing requirement, then bound it by the smallest downstream resource budget.
+
 ---
 
 ## 1. Start with the Bottleneck

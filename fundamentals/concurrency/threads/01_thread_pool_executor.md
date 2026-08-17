@@ -2,6 +2,8 @@
 
 > **Who this is for**: Python developers integrating blocking libraries or native work into a concurrent backend. Read [State, Mutability, and Safety](../01_state_and_safety.md) before sharing objects between workers.
 
+> **Key insight**: A thread pool moves blocking work off the caller but preserves shared process state, so capacity and ownership remain the application's responsibility.
+
 ---
 
 ## 1. What a Thread Pool Solves

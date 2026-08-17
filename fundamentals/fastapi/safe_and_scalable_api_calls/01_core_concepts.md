@@ -1,18 +1,29 @@
 # Part 1: Core Concepts
 
-> **Principle**: The only hard concurrency limit is at the socket level. Everything else is advisory.
+> **Who this is for**: Backend engineers making concurrent outbound HTTP or model-provider calls who need to distinguish admission, transport, rate, and deadline limits.
+
+> **Principle**: Every concurrency limit protects one boundary; name whether it caps admitted work,
+> in-flight attempts, connections, protocol streams, or provider-wide capacity.
+
+> **Key insight**: Capacity controls answer different questions—how much work may enter, execute, wait, or start per interval—and none substitutes for the others.
 
 ---
 
-## 1. The Real Concurrency Limit
+## 1. One request crosses several independently bounded queues
 
-The **only hard concurrency limit** in an external API or LLM system is imposed by the **HTTP client** via the number of simultaneously open sockets.
+Suppose a service admits at most 40 provider attempts with a semaphore while HTTPX permits 20
+connections. Both limits are strict at their own boundary. With HTTP/1.1, a connection normally
+carries one active request at a time; with HTTP/2, one connection can multiplex several concurrent
+streams. A socket count therefore is not a protocol-independent request count.
 
-- **Concurrency = number of active TCP connections**
-- This is enforced at the transport layer (kernel resources)
-- Python-level constructs do not control this directly
+- An **admission limit** caps how many application attempts may enter the protected region.
+- A **connection-pool limit** caps physical connections and bounds file descriptors and peer sockets.
+- A protocol's **stream limit** affects how many requests those connections can carry concurrently.
+- A provider-wide quota remains external unless the fleet coordinates one shared decision.
 
-**If the client does not limit connections, concurrency is effectively unbounded**, regardless of semaphores or rate limiters.
+If the client does not limit connections, sockets can grow until another resource fails. If the
+application does not bound admission, coroutines can still accumulate while waiting for a limited
+pool. The controls compose; neither makes the other advisory.
 
 ---
 
@@ -39,13 +50,16 @@ How many requests have:
 - Started
 - Not yet finished (success, failure, or timeout)
 
-**The concurrency that matters**:
+**The concurrency that matters** is the number of active attempts at the downstream bottleneck,
+plus the bounded queue waiting to enter it.
 
 > **Concurrency at the downstream bottleneck** (the vendor, database, etc.)
 
-This is limited by:
-1. Client connection pool (hard limit)
-2. Semaphore (soft limit)
+This can be limited by:
+
+1. An application semaphore or admission controller (strict attempt cap at that scope)
+2. Client connection and protocol-stream capacity (transport cap)
+3. A provider or fleet-wide shared limiter (external/global cap)
 
 ---
 
@@ -86,33 +100,31 @@ This is a **client-side budget**, not a measurement.
 
 ---
 
-## 4. The Fundamental Bound
+## 4. Rate and service time estimate demand; an explicit cap enforces it
 
-With a rate limiter and a call timeout:
+For steady traffic, Little's Law gives the planning estimate:
 
 ```
-max_concurrency ≈ rate × call_timeout
+average_in_flight ≈ admitted_rate × average_attempt_duration
 ```
 
 **Example**:
 
 ```
-rate = 1 req/sec
-call_timeout = 30 sec
+admitted_rate = 1 request/sec
+average_attempt_duration = 4 sec
 
-max_concurrency ≈ 30 concurrent calls
+average_in_flight ≈ 4 requests
 ```
 
-This bound holds **in steady state, even with retries**, provided:
-- Retries pass through the same rate limiter
-- Each attempt is capped by the same call timeout
+The attempt deadline replaces an unbounded duration with a maximum, but `rate × deadline` is not a
+universal hard cap: token buckets can release bursts, arrivals are discrete, and retries add new
+attempts. Enforce the required maximum with a semaphore/admission policy and size it from measured
+latency, bursts, and downstream capacity.
 
-> **Transients can exceed it.** The formula describes the long-run equilibrium. During a burst — e.g. a rate limiter draining its accumulated burst capacity at once (aiolimiter's leaky bucket permits up to `max_rate` acquisitions in a burst), or a sudden upstream slowdown stretching call times before the new timeout kicks in — in-flight count can spike above `rate × call_timeout` for a few seconds. Size your concurrency guard (semaphore / pool) with headroom if tail latency matters.
-
-**Critical insight**:
-
-> Retries do **not** increase maximum concurrency.
-> They only consume capacity *within* the same `rate × call_timeout` envelope.
+Retries must pass through the same rate and concurrency admission as first attempts. Then they
+consume the configured capacity instead of bypassing it, although they still increase total demand
+and can crowd out new work during a dependency failure.
 
 ---
 
@@ -149,13 +161,16 @@ httpx.Limits(
 These limits:
 - Prevent excessive open sockets
 - Protect file descriptors, TLS state, buffers
-- Define the **physical** concurrency ceiling
+- Define the **physical connection** ceiling
 
-**Rule**: All higher-level limits must be ≤ client limits.
+Choose the application attempt limit and connection limit together. They need not be numerically
+equal: HTTP/2 can carry multiple streams per connection, while HTTP/1.1 may queue attempts waiting
+for a connection. What matters is that both queues are bounded and their timeout signals are
+distinguishable.
 
 Without client limits:
-- Semaphores become advisory
-- Memory usage is unbounded
+- A semaphore can still cap attempts in its protected region
+- Other clients or unprotected call sites can still grow connection usage
 - Socket exhaustion is possible
 
 ---
@@ -172,33 +187,36 @@ They do **NOT**:
 - Enforce transport-level limits
 - Guarantee resource cleanup
 
-**Semaphores are advisory unless aligned with client limits.**
+The semaphore is strict for code that acquires it. It does not protect a call site that bypasses it
+and it does not close connections already owned by the client.
 
 ```python
 sem = asyncio.Semaphore(50)
 
 async with sem:
-    # Gate: only 50 coroutines can be here
-    # But HTTP client controls actual socket usage
+    # At most 50 attempts can execute this protected call concurrently.
+    # The client separately controls how those attempts obtain connections/streams.
     await client.get(...)
 ```
 
 ---
 
-## 8. Correct Layering (Non-Negotiable)
+## 8. Correct layering assigns one failure to each control
 
-A safe production stack requires all layers:
+Use the controls whose failure they actually address:
 
 | Layer | Mechanism | Purpose |
 |-------|-----------|---------|
 | 1 | Client connection limits | Hard physical cap on sockets |
-| 2 | Client transport timeouts | Real request termination |
-| 3 | Semaphore | Logical concurrency gate |
-| 4 | Rate limiter | Vendor quota compliance |
-| 5 | Application timeout | Task cancellation |
+| 2 | Client transport timeouts | Bound connect, pool, write, and read inactivity |
+| 3 | Semaphore | Strict attempt cap at this call site |
+| 4 | Rate limiter | Vendor or policy throughput compliance |
+| 5 | Application deadline | Bound total attempt/task wall time through cancellation |
 | 6 | Queue timeout | Fail fast under overload |
 
-**Removing any layer introduces known failure modes.**
+> **Core:** Connection limits, a total deadline, and bounded admission address different exhaustion
+> paths. Add a rate limiter only when a throughput quota exists; add a separate queue deadline when
+> waiting for admission must fail before the request's total budget expires.
 
 ---
 
@@ -264,26 +282,24 @@ This means:
 
 ## 11. Global, Shared Primitives
 
-These must be created **once** at app startup, **not per-request**.
+Long-lived clients and process-local controls should be created during application startup and
+closed during shutdown. Per-request construction still executes, but it fragments capacity and
+throws away connection reuse, so no one limit describes the process.
 
 ```python
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Optional
-from aiolimiter import AsyncLimiter
-import httpx
-from fastapi import FastAPI
 
-# GLOBAL primitives — created once
-llm_sem = asyncio.Semaphore(50)
-llm_rate = AsyncLimiter(60, 60)
-client: Optional[httpx.AsyncClient] = None
+import httpx
+from aiolimiter import AsyncLimiter
+from fastapi import FastAPI
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global client
-    client = httpx.AsyncClient(
+    app.state.llm_sem = asyncio.Semaphore(50)
+    app.state.llm_rate = AsyncLimiter(60, 60)
+    app.state.http = httpx.AsyncClient(
         limits=httpx.Limits(
             max_connections=50,
             max_keepalive_connections=20,
@@ -295,14 +311,17 @@ async def lifespan(app: FastAPI):
             pool=5.0,
         )
     )
-    yield
-    await client.aclose()
+    try:
+        yield
+    finally:
+        await app.state.http.aclose()
 
 
 app = FastAPI(lifespan=lifespan)
 ```
 
-> ⚠️ **Critical**: If these are created per request, they do NOTHING.
+⚠️ Creating a fresh client or limiter per request is a silent scope failure: each request obeys its
+own limit, so the process total is not bounded by that value, and the client cannot reuse connections.
 
 ---
 
@@ -310,27 +329,29 @@ app = FastAPI(lifespan=lifespan)
 
 | Mechanism | What it limits | Scope |
 |-----------|----------------|-------|
-| Client `max_connections` | Physical sockets | Transport |
-| Semaphore | Logical concurrency | Application |
+| Client `max_connections` | Physical connections | Transport |
+| Semaphore | In-flight attempts through one protected region | Application/process |
 | Rate limiter | Starts per time | Application |
-| Call timeout | Max latency | Transport + Application |
+| HTTPX phase timeouts | Individual transport waits | Transport |
+| Application deadline | Total wall time | Application task |
 
 **The Formula**:
 
 ```
-expected_concurrency ≈ rate × call_timeout
-actual_max_concurrency = min(client_limit, semaphore_size)
+average_in_flight ≈ admitted_rate × average_attempt_duration
+attempts_in_protected_region ≤ semaphore_size
+connections_in_client_pool ≤ max_connections
 ```
 
 ---
 
 ## Key Principles
 
-1. **Client limits are the only hard limit** — everything else is advisory
+1. **Every limit has a scope** — name attempts, connections, streams, or fleet-wide work
 2. **Rate limiting ≠ concurrency control** — they serve different purposes
-3. **Semaphores are logical gates** — they don't close sockets
+3. **Semaphores are strict gates for participating code** — they do not close sockets or protect bypasses
 4. **Timeouts define budgets** — not expected behavior
-5. **Primitives must be global** — per-request = useless
+5. **Resource ownership must match the promised scope** — per-request controls cannot promise a process-wide cap
 
 ---
 

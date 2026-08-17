@@ -2,6 +2,8 @@
 
 > **Who this is for**: API designers exposing collections that must remain bounded, stable, and operable as data grows. Assumes [Representations, Validation, and Errors](04_representations_validation_and_errors.md).
 
+> **Key insight**: Pagination stability comes from a deterministic ordered position and bounded query semantics, not from encoding that position as a cursor.
+
 ---
 
 ## 1. Every Collection Needs Bounds
@@ -258,4 +260,3 @@ Pages are normally separate database snapshots. If consumers need a stable expor
 ---
 
 **Next**: [Concurrency, Idempotency, and Retries](06_concurrency_idempotency_and_retries.md)
-

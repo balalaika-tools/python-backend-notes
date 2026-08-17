@@ -1,12 +1,18 @@
-# Long-Running Task & Batched Inference Patterns
+# Long-Running Task Client-Delivery and Infrastructure Patterns
 
-A comprehensive guide to handling requests that take seconds to hours — covering every layer from the client that submits the work, through the orchestrator that manages the lifecycle, to the worker that does the heavy lifting.
+This section compares client delivery, failure detection, and infrastructure choices after the
+application already owns a durable job lifecycle. The canonical implementation of that lifecycle
+lives in [Background Work](../../background_work/README.md); these notes use small excerpts and do
+not replace its state-machine and reliability owners.
 
 ---
 
 ## The Problem
 
-A synchronous HTTP request has a natural ceiling: load-balancer timeouts (30–60 s), client timeouts, and the fact that holding a connection open wastes resources on both sides. When work takes **minutes** (LLM inference, batch classification, report generation, video processing) or **hours** (full dataset reprocessing, model training), you need an asynchronous architecture.
+A synchronous request stops fitting when its end-to-end timeout budget, occupied server/dependency
+capacity, retry ambiguity, or user experience no longer matches the work. There is no universal
+30-second boundary: a short request can still need a durable job, while a deliberately streamed
+long response can remain synchronous when every intermediary and client supports that contract.
 
 The core idea is always the same:
 
@@ -59,22 +65,35 @@ The execution plane. Receives a task, does the work (inference, classification, 
 ## When to Use What — Quick Decision Tree
 
 ```
-Is the task < 30 seconds?
-├── Yes → Consider synchronous with timeout + retry
-└── No
-    ├── Do you need real-time progress updates?
-    │   ├── Yes → WebSocket (client) + Heartbeat (orchestrator)
-    │   └── No
-    │       ├── Is the client a browser/mobile app?
-    │       │   ├── Yes → SSE or Short-Polling (client) + Fire-and-Forget with Callback (orchestrator)
-    │       │   └── No (server-to-server)
-    │       │       ├── Can the client expose an endpoint?
-    │       │       │   ├── Yes → Webhook (client) + Fire-and-Forget with Callback (orchestrator)
-    │       │       │   └── No → Short-Polling (client) + any orchestration pattern
-    │       └── Is failure detection critical (SLA)?
-    │           ├── Yes → Task Token or Heartbeat (orchestrator)
-    │           └── No → Fire-and-Forget with Callback (orchestrator)
+Can the request safely fit the end-to-end deadline and resource budget?
+├── Yes → Keep the synchronous contract; make retries and cancellation explicit
+└── No → Create durable job state and return its status URL
+    ├── Does the client need server-pushed progress?
+    │   ├── No → Short polling is the universal fallback
+    │   └── Yes
+    │       ├── Is progress one-way from server to client?
+    │       │   ├── Yes → SSE plus durable status recovery
+    │       │   └── No → WebSocket plus durable status recovery
+    └── Is the consumer another service with a registered callback endpoint?
+        ├── Yes → Signed webhook notification plus durable status recovery
+        └── No → Short polling
 ```
+
+---
+
+## Reading Order
+
+**Working result by entry 2**: choose a client delivery contract and a worker-loss detection
+contract while retaining the Background Work job row as the source of truth.
+
+1. **Do:** [Client Delivery Patterns](03_client_delivery_patterns.md) — start with authenticated short polling and select SSE only for one-way push or WebSocket for bidirectional interaction.
+2. **Understand:** [Orchestration Patterns](01_orchestration_patterns.md) — add a bounded callback/heartbeat deadline without replacing durable job state.
+3. **Harden:** [Worker Patterns](02_worker_patterns.md) — add lease ownership, idempotent effects, and shutdown behavior; use the canonical [reliability notes](../../background_work/reliability/README.md) for complete implementations.
+4. **Choose infrastructure only when needed:** [Infrastructure](04_infrastructure.md), then [Advanced Patterns](05_advanced_patterns.md).
+
+**Stop here if** short polling plus a durable status row and explicit worker-loss deadline meets the
+product requirement. Continue to push transports, brokers, workflow engines, sagas, or tracing only
+when a named interaction or failure requirement demands them.
 
 ---
 

@@ -31,10 +31,40 @@ Start with the **workflow orchestrator selection** row only when a process has d
 
 ## Reading Order
 
-1. **[Decision Guide](../09_decision_guide.md)** — choose the architectural role before a framework.
-2. **[Workflow orchestrator selection](00_workflow_orchestrator_selection.md)** — if the process has durable multi-step coordination, compare the engine boundary before selecting a product.
-3. **Relevant framework overview** — learn its runtime and failure semantics.
-4. **[Reliability Deep Dives](../reliability/README.md)** — add business guarantees that no framework supplies automatically.
+Choose one deterministic branch; do not read every framework.
+
+### Run a scheduled callback
+
+**Working result by entry 1**: execute one persisted, overlap-aware APScheduler firing.
+
+1. **Do:** [APScheduler overview](apscheduler/overview.md).
+2. **Understand:** [Scheduling and periodic work](../06_scheduling_and_periodic_work.md) — distinguish a stored schedule from an exactly-once business effect.
+
+**Stop here if** one application owns scheduling and execution. Continue to a task queue when work
+must be distributed independently of the scheduler process.
+
+### Run independent broker-backed tasks
+
+**Working result by entry 1**: execute one worker task and observe its result.
+
+1. **Do:** choose [Celery](celery/overview.md) or [Dramatiq](dramatiq/overview.md), not both.
+2. **Understand:** [Queue and worker architectures](../04_queue_and_worker_architectures.md) and [task execution models](../05_task_execution_models.md).
+3. **Harden:** [Atomic transitions and outbox](../reliability/01_atomic_transitions_and_outbox.md), [idempotent effects](../reliability/03_idempotency_and_external_effects.md), and [reconciliation](../reliability/05_reconciliation_dlq_and_observability.md).
+
+**Stop here if** each job is an independent unit with application-owned status. Continue to an
+engine when the product needs durable multi-step coordination, signals, or long-lived timers.
+
+### Run a durable workflow
+
+**Working result by entry 2**: choose an engine boundary and run the selected framework's smallest
+durable workflow or checkpoint/resume trace.
+
+1. **Decide:** [Workflow orchestrator selection](00_workflow_orchestrator_selection.md).
+2. **Do one branch:** [Temporal](temporal/overview.md), [Airflow](airflow/overview.md), or [LangGraph](langgraph/overview.md), according to that decision.
+3. **Harden:** [Retries, timeouts, and cancellation](../reliability/04_retries_timeouts_and_cancellation.md) plus the exact reliability note named by the chosen engine's external-effect boundary.
+
+**Stop here if** the evaluation proves the required recovery, deployment, and external-effect
+contract. Compare a second product only when a named requirement remains unmet.
 
 ---
 

@@ -1,6 +1,12 @@
 # Streaming in FastAPI
 
+<!-- length-justification: This is the canonical FastAPI streaming-mechanics reference; finite streams, Server-Sent Events, files, upstream proxying, disconnects, buffering, and tests remain together because they share one response-body lifetime. -->
+
+> **Who this is for**: FastAPI engineers who understand ordinary HTTP responses and need to stream bounded data or events without leaking resources after disconnects.
+
 How streaming works at the HTTP level, and how FastAPI exposes it. This guide covers **mechanics** — the fundamental building blocks. For production concurrency patterns (semaphores, circuit breakers, admission control), see the Safe and Scalable API Calls streaming guides:
+
+> **Key insight**: A streaming response keeps work and resources alive after headers are sent, so cancellation, cleanup, and proxy buffering become part of the response contract.
 > - [07_streaming_patterns.md](./safe_and_scalable_api_calls/07_streaming_patterns.md) — SSE, streaming timeouts, semaphore duration
 > - [08_streaming_advanced.md](./safe_and_scalable_api_calls/08_streaming_advanced.md) — multi-stream, aggregation, streaming circuit breakers
 

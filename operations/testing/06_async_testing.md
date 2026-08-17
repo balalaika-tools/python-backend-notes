@@ -1,6 +1,10 @@
 # 06 — Async Testing
 
+> **Who this is for**: Python engineers testing `async def` application code, fixtures, and cancellation behavior with pytest.
+
 > **Purpose**: Run `async def test_*` functions through pytest-asyncio without fighting the event loop. Understand the sync/async pitfalls that bite everyone.
+
+> **Key insight**: An async test is valid only when pytest owns and awaits the coroutine on the intended event loop; creating a coroutine object is not execution.
 
 ---
 

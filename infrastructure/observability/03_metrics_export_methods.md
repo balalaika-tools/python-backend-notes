@@ -122,6 +122,11 @@ async def checkout():
         return {"ok": True}
 ```
 
+After one request to `/checkout`, `curl -s http://localhost:9464/metrics | grep
+http_server_requests_total` should include a sample with `route="/checkout"` and value `1`. If the
+sample exists locally but the Prometheus target is absent or `DOWN`, instrumentation works but the
+scrape configuration or network path does not.
+
 ### How `PrometheusMetricReader` works
 
 `PrometheusMetricReader` is a **pull exporter**. Unlike OTLP exporters which push on a timer, it holds metric data in memory and only serializes it when Prometheus makes an HTTP request. The `start_http_server(9464)` call from `prometheus_client` starts the HTTP server that answers those scrape requests.
@@ -266,6 +271,12 @@ async def checkout():
         return {"ok": True}
 ```
 
+Temporarily route the Collector pipeline to its `debug` exporter, call `/checkout`, and wait past
+the 30-second export interval. Success is a Collector log record for
+`http_server_requests_total` with `service.name=orders-api`. Repeated `UNAVAILABLE` exporter errors
+with no record indicate a TLS, endpoint, or pipeline-wiring failure; a component declared outside
+`service.pipelines.metrics` is inert.
+
 **Compared to 1A, the only changes are:**
 
 - Removed `PrometheusMetricReader` and `start_http_server`
@@ -362,6 +373,11 @@ async def checkout():
         )
         return {"ok": True}
 ```
+
+The Prometheus-native method has the same observable check: after one `/checkout`, the scrape output
+contains `http_server_requests_total{method="GET",route="/checkout"} 1.0`. If two libraries emit the
+same logical metric under different names or labels, queries show parallel series rather than a
+larger count; remove one instrumentation owner instead of summing the duplicates.
 
 **What changed compared to Method 1:**
 

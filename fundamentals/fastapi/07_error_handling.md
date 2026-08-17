@@ -1,6 +1,12 @@
 # FastAPI Error Handling
 
+<!-- length-justification: This is the canonical FastAPI error-contract reference; domain exceptions, handlers, validation mapping, logging, retryability, and production composition remain together so one precedence model owns every response path. -->
+
+> **Who this is for**: FastAPI engineers who need stable public error contracts while preserving internal causes and observability.
+
 A complete guide to error response patterns in FastAPI — from mental model to production-grade consistency.
+
+> **Key insight**: Translate failures once at the boundary that knows both the internal cause and the public contract; lower layers preserve cause, while handlers choose the response.
 
 ---
 

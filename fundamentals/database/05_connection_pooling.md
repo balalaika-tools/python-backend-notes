@@ -1,6 +1,12 @@
 # Connection Pooling — Deep Dive
 
+<!-- length-justification: This is the canonical database-pooling decision reference; SQLAlchemy pools, asyncpg pools, PgBouncer modes, sizing, monitoring, and failure symptoms remain together because each consumes the same PostgreSQL connection budget. -->
+
+> **Who this is for**: Backend engineers who already use PostgreSQL connections and need to size, operate, and debug application and proxy pools.
+
 > **Why pooling matters**: Opening a PostgreSQL connection takes ~5-50ms and consumes ~5-10MB of server memory. Without a pool, every request would pay this cost and your database would run out of connections under load.
+
+> **Key insight**: A pool reuses connections but does not create database capacity; every application and proxy layer must fit inside the same server-side connection budget.
 
 ---
 

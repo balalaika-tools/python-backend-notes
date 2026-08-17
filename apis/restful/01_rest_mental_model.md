@@ -2,6 +2,8 @@
 
 > **Who this is for**: Practitioners who have built JSON endpoints but have not studied what makes an interface RESTful. Start with [API Fundamentals](../01_api_fundamentals.md).
 
+> **Key insight**: REST's constraints create shared visibility and evolvability; noun-shaped URLs and JSON alone do not.
+
 ---
 
 ## 1️⃣ REST Is a Set of Constraints
@@ -173,4 +175,3 @@ Do not add a second API technology to repair a bad domain model. First confirm t
 ---
 
 **Next**: [HTTP Semantics](02_http_semantics.md)
-

@@ -834,7 +834,8 @@ app = FastAPI(lifespan=lifespan)
 async def create_order(order_id: int, user_id: int):
     r = app.state.redis
 
-    # Publish to stream (durable — guaranteed processing)
+    # Retain the event in the stream. Processing still requires persistence,
+    # pending-entry recovery, and an idempotent handler.
     await r.xadd("events:orders", {
         "action": "created",
         "order_id": str(order_id),
@@ -880,6 +881,11 @@ async def order_stream_consumer(r: aioredis.Redis):
             print(f"Stream consumer error: {e}")
             await asyncio.sleep(1)
 ```
+
+`XADD` retains the entry for later reads; it does not guarantee the business effect. The deployment
+must choose an RDB/AOF loss window, reclaim stale pending entries, acknowledge only after the effect
+is durable, and make the handler replay-safe. Use the reliable processor earlier in this note for
+recovery and [HA and Persistence](06_ha_and_persistence.md) for the storage loss window.
 
 ---
 

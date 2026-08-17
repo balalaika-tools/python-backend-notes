@@ -1,6 +1,10 @@
 # Databases, Schemas, and SQL Foundations
 
+<!-- length-justification: This is the canonical relational-foundations reference; schemas, constraints, transactions, indexes, normalization, and the first SQL operations remain together so later driver and ORM notes can assume one consistent database model. -->
+
 > **Who this is for**: Engineers who know how to code but want a solid mental model of relational databases before touching Python drivers or ORMs.
+
+> **Key insight**: A relational database protects relationships and invariants at the shared data boundary; application objects are only temporary views of that durable model.
 
 ---
 

@@ -2,6 +2,8 @@
 
 > **Who this is for**: Engineers choosing an integration style after learning the contract model in [API Fundamentals](01_api_fundamentals.md).
 
+> **Key insight**: Choose an API style from interaction shape, ownership, and failure semantics; payload syntax is a secondary consequence.
+
 ---
 
 ## 1️⃣ Compare the Right Things
@@ -55,7 +57,12 @@ The choices can coexist. A product might expose REST publicly, use gRPC internal
 
 ✅ One typed graph lets consumers request the exact connected shape they need. Schema introspection and client tooling are strong.
 
-⚠️ Field-level authorization, query cost, caching, N+1 access, and compatibility move into the GraphQL execution layer. It does not make expensive joins free.
+One order lookup followed by one separate item lookup for each returned order is the **N+1 access
+pattern**: one parent query plus N child queries. A resolver can create that shape invisibly unless
+the server batches or preloads the child access.
+
+⚠️ Field-level authorization, query cost, caching, N+1 access, and compatibility move into the
+GraphQL execution layer. Client-selected fields do not make expensive joins free.
 
 ### gRPC
 
@@ -153,4 +160,3 @@ Trying to standardize every arrow on one technology would make at least one boun
 ---
 
 **Next**: [API Contracts and Lifecycle](03_api_contracts_and_lifecycle.md)
-

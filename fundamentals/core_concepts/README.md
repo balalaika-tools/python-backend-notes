@@ -25,14 +25,16 @@
 
 ## Reading Order
 
-1. **Typing** — learn the contract vocabulary used by every later example
-2. **Context Managers** — understand resource lifetimes before database/client examples
-3. **Decorators** — expand `@` syntax into ordinary function rebinding and closures
-4. **Exceptions** — follow failures through layers and decide where policy belongs
-5. **Logging** — make success and failure observable without duplicate or missing records
-6. **Structured Logging** — turn records into searchable events with request context
-7. **Configuration** — validate deployment input and secret delivery at startup
-8. **Signals** — coordinate application cleanup with the process/platform lifecycle
+**Working result by entry 2**: describe a function/data contract and own one resource lifetime with
+a context manager.
+
+1. **Do:** [Typing](typing.md) — express the contract vocabulary used by later examples.
+2. **Understand:** [Context Managers](context_managers.md) — trace acquisition, use, and cleanup, including partial setup failure.
+3. **Extend the language model:** [Decorators](decorators.md) and [Exceptions](exceptions.md) — explain rebinding and failure propagation.
+4. **Harden the process boundary:** [Logging](logging/README.md), [Structured Logging](structlog_guide.md), [Configuration](configuration.md), and [Signals](signals.md).
+
+**Stop here if** you only needed the Python contract and lifetime model used by another path.
+Continue into step 4 when you own application startup, observability, configuration, or shutdown.
 
 For request-scoped state and async-safe context propagation, read [concurrency/async/03_contextvars.md](../concurrency/async/03_contextvars.md).
 

@@ -68,12 +68,13 @@ The two `03` notes are deliberate branches after the threshold decision: read th
 
 **For**: API engineers meeting background work for the first time.
 
-**Outcome**: submit one independent task, return a status URL, claim it safely, retry it, and validate the smallest suitable runtime.
+**Working result by entry 2**: submit one independent task, return a status URL, claim and retry it,
+then explain which state belongs to the application rather than the delivery mechanism.
 
-1. [Overview](01_overview.md) — separate the business promise from delivery and execution.
-2. [When a Task Becomes a Workflow](02_when_a_task_becomes_a_workflow.md) — confirm that one job is enough.
-3. [Minimal Durable Task](03_minimal_durable_task.md) — build the complete `PENDING → RUNNING → terminal` baseline.
-4. [Decision Guide](09_decision_guide.md) — check that database polling, a broker, or a managed queue matches the actual constraints.
+1. **Do:** [Minimal Durable Task](03_minimal_durable_task.md) — build the complete `PENDING → RUNNING → terminal` baseline.
+2. **Understand:** [Overview](01_overview.md) — separate the business promise from delivery and execution around that result.
+3. **Escalate only when needed:** [When a Task Becomes a Workflow](02_when_a_task_becomes_a_workflow.md).
+4. **Decide:** [Decision Guide](09_decision_guide.md) — check that database polling, a broker, or a managed queue matches the actual constraints.
 
 **Stop here if** the product needs one independent, replay-safe task and a result lookup endpoint. Continue to [State-Machine Design](03_state_machine_design.md) when intermediate business states, branching, joins, human signals, or compensation become durable requirements. Continue to [Reliability](reliability/README.md) when the baseline encounters external side effects, long leases, cancellation races, or operational repair.
 

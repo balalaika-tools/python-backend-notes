@@ -1,5 +1,7 @@
 # BackgroundTasks, APIRouter, and OpenAPI Customization
 
+> **Who this is for**: FastAPI engineers who need to distinguish response-bound callbacks from durable work and organize routes and OpenAPI metadata without changing request semantics.
+
 > Three small but common things every FastAPI app needs. Collected here because each is too short for its own file, and they're all about *shape of the app* rather than request-handling mechanics.
 
 Verified against **FastAPI 0.141.1 / Starlette 1.3.1** (checked 2026-08-03).

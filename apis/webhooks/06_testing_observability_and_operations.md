@@ -2,6 +2,8 @@
 
 > **Who this is for**: Teams operating webhook producers or consumers as a supported production integration.
 
+> **Key insight**: Operable webhooks preserve enough per-attempt evidence to distinguish endpoint failure, policy rejection, queue delay, duplicate handling, and downstream processing.
+
 ---
 
 ## 1. Test the Exact Contract
@@ -232,4 +234,3 @@ Rotate, accept overlap only as necessary, revoke old key, inspect failed/suspici
 ---
 
 **Next**: Return to the [API Communication Guides](../README.md) or apply the patterns in the [FastAPI Guides](../../fundamentals/fastapi/README.md).
-
