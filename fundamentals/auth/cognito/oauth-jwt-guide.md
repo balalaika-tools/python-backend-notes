@@ -8,6 +8,35 @@
 
 > Theory is in [auth/jwt.md](../jwt.md) and [auth/oauth2.md](../oauth2.md). This guide shows how to apply those concepts specifically with AWS Cognito — boto3 setup, token flow, real code.
 
+## Quick path: request a service token
+
+Given an existing confidential app client, user-pool domain, and `myapi/read` scope, this request
+produces the first observable result before the setup reference below:
+
+```python
+import requests
+
+response = requests.post(
+    "https://myapp-auth.auth.us-east-1.amazoncognito.com/oauth2/token",
+    data={
+        "grant_type": "client_credentials",
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "scope": "myapi/read",
+    },
+    timeout=10,
+)
+response.raise_for_status()
+body = response.json()
+print(response.status_code, body["token_type"], body["expires_in"], bool(body["access_token"]))
+# 200 Bearer 3600 True
+```
+
+Never print the token itself. A `400` response with `invalid_client` usually means the app client is
+public, the secret is wrong, or the client-credentials flow is not enabled. The following sections
+own those prerequisites. OpenID Connect (OIDC) is the identity layer built on OAuth; its built-in
+profile scopes are distinct from custom API authorization scopes.
+
 ---
 
 ## Cognito Resource Servers — Defining Custom Scopes
@@ -144,7 +173,9 @@ client_resp = cognito.create_user_pool_client(
 client_id = client_resp["UserPoolClient"]["ClientId"]
 ```
 
-For browser/mobile apps, use `ALLOW_USER_SRP_AUTH` instead of `ALLOW_USER_PASSWORD_AUTH` — SRP means the password never travels the wire. For server-side scripts and tests, `USER_PASSWORD_AUTH` is fine.
+For browser/mobile apps, use `ALLOW_USER_SRP_AUTH` instead of `ALLOW_USER_PASSWORD_AUTH`—Secure
+Remote Password (SRP) is a password-authentication protocol that proves knowledge without sending
+the password itself. For server-side scripts and tests, `USER_PASSWORD_AUTH` is fine.
 
 ### Step 2: Create a User
 
@@ -202,7 +233,8 @@ new_id_token     = refresh_resp["AuthenticationResult"]["IdToken"]
 
 ## Validating Tokens in Your API (Cognito-Specific)
 
-Cognito's JWKS and issuer URLs follow a fixed pattern. Plug these into the generic validation from [jwt.md](../jwt.md).
+Cognito's JSON Web Key Set (JWKS), the published set of issuer public keys, and issuer URLs follow a
+fixed pattern. Plug these into the generic validation from [jwt.md](../jwt.md).
 
 ```python
 REGION  = "us-east-1"
@@ -220,8 +252,7 @@ def require_scope(required_scope: str, claims: dict) -> None:
     if required_scope not in scopes:
         raise HTTPException(status_code=403, detail=f"Missing scope: {required_scope}")
 
-# Usage
-claims = validate_token(token)
+# Usage after the dependency below returns verified access-token claims
 require_scope("myapi/write", claims)
 ```
 
@@ -233,8 +264,7 @@ def require_group(required_group: str, claims: dict) -> None:
     if required_group not in groups:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
 
-# Usage
-claims = validate_token(token)
+# Usage after the dependency below returns verified access-token claims
 require_group("admins", claims)
 ```
 
@@ -254,11 +284,13 @@ jwks_client = PyJWKClient(
 )
 ISSUER    = f"https://cognito-idp.{REGION}.amazonaws.com/{POOL_ID}"
 CLIENT_ID = "your-client-id"
+RESOURCE_AUDIENCE = "myapi"  # set to None only when this API intentionally has no resource aud
+REQUIRED_SCOPES = {"myapi/read"}
 
 bearer_scheme = HTTPBearer()
 
 
-def get_current_user(
+def get_current_access_token(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ) -> dict:
     token = credentials.credentials
@@ -269,27 +301,54 @@ def get_current_user(
             signing_key.key,
             algorithms=["RS256"],
             issuer=ISSUER,
-            options={"verify_aud": False},  # verify manually below — aud location differs per token type
+            options={
+                "verify_aud": False,  # access-token aud is resource binding, not client ID
+                "require": ["exp", "iat", "iss", "sub", "token_use", "client_id"],
+            },
         )
-        # IdToken puts the app client in `aud`. AccessToken uses `client_id` (not `aud`)
-        # to identify the app client. `aud` appears on access tokens only when the token was
-        # issued for a resource-server-scoped request; it then holds the resource server identifier,
-        # not the app client ID — so the aud-equals-CLIENT_ID comparison below is a no-op on
-        # resource-server access tokens and should not be relied on for those.
-        if claims.get("client_id") != CLIENT_ID and claims.get("aud") != CLIENT_ID:
+        if claims.get("token_use") != "access":
+            raise HTTPException(status_code=401, detail="Expected access token")
+        if claims.get("client_id") != CLIENT_ID:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid client")
+        if RESOURCE_AUDIENCE is not None and claims.get("aud") != RESOURCE_AUDIENCE:
+            raise HTTPException(status_code=401, detail="Invalid resource audience")
+        scopes = set(claims.get("scope", "").split())
+        if not REQUIRED_SCOPES <= scopes:
+            raise HTTPException(status_code=403, detail="Missing required scope")
         return claims
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired")
-    except jwt.InvalidTokenError as e:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 ```
+
+Identity handling uses a separate validator and is not wired into API authorization:
+
+```python
+def validate_id_token(token: str) -> dict:
+    signing_key = jwks_client.get_signing_key_from_jwt(token)
+    claims = jwt.decode(
+        token,
+        signing_key.key,
+        algorithms=["RS256"],
+        issuer=ISSUER,
+        audience=CLIENT_ID,
+        options={"require": ["exp", "iat", "iss", "aud", "sub", "token_use"]},
+    )
+    if claims.get("token_use") != "id":
+        raise jwt.InvalidTokenError("expected a Cognito ID token")
+    return claims
+```
+
+Do not make one dependency accept either profile.
 
 ---
 
 ## Consuming Cognito Tokens at the Gateway (API Gateway / AgentCore JWT Authorizer)
 
-`CustomJWTAuthorizer` is an **API Gateway / AgentCore** construct, not a Cognito feature — Cognito only issues the token. When you configure an API Gateway or AgentCore Gateway to protect an endpoint, you point it at Cognito's discovery URL and list the client IDs it should trust:
+`CustomJWTAuthorizer` is an **API Gateway / AgentCore Gateway** construct—an edge authorization
+policy—not a Cognito feature. Cognito only issues the token. Configure it with Cognito's discovery
+URL and the client IDs it should trust:
 
 ```python
 auth_config = {
@@ -306,7 +365,10 @@ The gateway (not Cognito):
 3. Validates every incoming JWT signature and claims
 4. Rejects tokens from clients not in `allowedClients`
 
-You write no validation code — you only configure which Cognito pool and clients the gateway should trust. Your origin service behind the gateway can then trust the request has already been authenticated.
+The origin may rely on this decision only when callers cannot reach it except through the configured
+gateway, or when the gateway-to-origin hop has its own authenticated identity. Otherwise an attacker
+can bypass the authorizer and call the origin directly. Network routing is part of the trust boundary,
+not an optional deployment detail.
 
 ---
 
@@ -355,7 +417,9 @@ bearer_token = token_resp.json()["access_token"]
 response = requests.get(api_url, headers={"Authorization": f"Bearer {bearer_token}"})
 ```
 
-The token is the same JWT either way. The downstream service only cares about the signature — not how you obtained it.
+The token is the same serialized format either way, but the downstream trust decision remains the
+full contract: signature, issuer, expiry/freshness, `token_use`, app `client_id`, resource `aud` when
+configured, and required scopes. A valid signature alone does not make a token suitable for this API.
 
 ---
 

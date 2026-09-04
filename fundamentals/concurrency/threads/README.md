@@ -38,6 +38,10 @@ Do not expect standard CPython threads to speed up pure Python CPU loops on the 
 2. **Synchronization primitives** — coordinate shared state only after the worker and ownership model is clear.
 3. **State and safety** — revisit the cross-scheduler matrix when threads interact with async code or processes.
 
+**Milestone:** entry 1 prints the bounded executor's completed results and exits after shutdown.
+Stop there for independent blocking calls. Continue only when workers share mutable state or the
+design crosses into async or process execution.
+
 ---
 
 ## Safe primitives

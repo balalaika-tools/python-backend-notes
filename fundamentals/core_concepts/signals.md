@@ -325,7 +325,7 @@ A second test should deliberately exceed the grace period and verify that the
 system remains correct after force-kill. That is where missing acknowledgements
 and non-idempotent jobs appear.
 
-> **Mental model**: the signal is only the trigger. Graceful shutdown is a
+> **Key insight**: the signal is only the trigger. Graceful shutdown is a
 > deadline-driven application protocol, and abrupt death must still be safe.
 
 ---

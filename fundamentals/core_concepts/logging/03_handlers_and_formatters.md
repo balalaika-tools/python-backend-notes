@@ -294,6 +294,10 @@ finally:
     listener.stop()
 ```
 
+Emit `logging.getLogger("demo").info("queued before stop")` immediately before leaving the `try`.
+The console must show that record before process exit. If intermittent final records disappear,
+`listener.stop()` is missing or shutdown bypasses this owner; the queue itself is not durable.
+
 The trade-off moves rather than disappears:
 
 - an unbounded queue avoids blocking producers but can consume unbounded memory
@@ -340,6 +344,24 @@ def configure_logging() -> None:
     root.addHandler(console)
     root.addHandler(errors)
 ```
+
+Verify both routes before shipping:
+
+```python
+configure_logging()
+logger = logging.getLogger("demo")
+logger.info("console only")
+logger.error("console and file")
+
+with open("errors.log", encoding="utf-8") as log_file:
+    print([line.rstrip().split(" ")[-3:] for line in log_file])
+# console: ... INFO demo console only
+# console: ... ERROR demo console and file
+# file-derived output contains: [['console', 'and', 'file']]
+```
+
+If the console works but `errors.log` is empty, the file handler was not attached, its threshold is
+too high, or the process did not flush/close it during shutdown.
 
 Clearing handlers is appropriate only because this application function
 explicitly owns root configuration. A library must never clear handlers from its

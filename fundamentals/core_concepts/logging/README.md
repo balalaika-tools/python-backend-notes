@@ -24,6 +24,10 @@
 3. **Handlers & Formatters** — route, filter, render, queue, and shut down records
 4. **Patterns** — choose a topology for scripts, services, frameworks, and libraries
 
+**Milestone:** after entry 1, the program emits `INFO __main__ application started`. Stop there for a
+small script with one destination. Continue when logger hierarchy, multiple destinations, queued
+delivery, or framework-owned configuration is part of the process.
+
 ---
 
 ## Prerequisites

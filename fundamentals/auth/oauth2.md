@@ -38,7 +38,7 @@ OAuth 2.0 defines several "grant types" — different ways for a client to get a
 
 ### 1. Authorization Code (+ PKCE)
 
-**Use for**: User-facing apps (web, mobile, SPA) where a human logs in.
+**Use for**: User-facing apps (web, mobile, single-page application or SPA) where a human logs in.
 
 ```
 User → Browser → Your App → Auth Server login page
@@ -62,6 +62,11 @@ code_verifier = secrets.token_urlsafe(64)
 code_challenge = base64.urlsafe_b64encode(
     hashlib.sha256(code_verifier.encode()).digest()
 ).rstrip(b"=").decode()
+state = secrets.token_urlsafe(32)
+
+# Store both values in the user's encrypted, HttpOnly server session. They are
+# one-time transaction state and must survive the redirect to the callback.
+session["oauth_transaction"] = {"state": state, "code_verifier": code_verifier}
 
 # Include in authorization URL
 auth_url = (
@@ -72,17 +77,29 @@ auth_url = (
     f"&scope=openid+email+profile"
     f"&code_challenge={code_challenge}"
     f"&code_challenge_method=S256"
+    f"&state={state}"
 )
 
-# Exchange code for tokens (include verifier)
+# Callback: reject a forged or replayed authorization response before exchange.
+transaction = session.pop("oauth_transaction", None)
+if transaction is None or not secrets.compare_digest(received_state, transaction["state"]):
+    raise ValueError("invalid OAuth state")
+
+# Exchange code for tokens (include the session-bound verifier)
 token_response = requests.post(token_url, data={
     "grant_type": "authorization_code",
     "code": received_code,
     "redirect_uri": redirect_uri,
     "client_id": client_id,
-    "code_verifier": code_verifier,
+    "code_verifier": transaction["code_verifier"],
 })
 ```
+
+Without `state`, an attacker can make a victim's browser complete the attacker's authorization
+response, binding the wrong account or operation to the victim's session. The one-time comparison
+binds the callback to the browser session that initiated it. In OpenID Connect (OIDC), the identity
+layer built on OAuth, a correctly validated `nonce` can also bind identity responses where the
+protocol profile permits it.
 
 ### 2. Client Credentials
 
@@ -313,8 +330,9 @@ Auth Server issues token with exactly those scopes (if client is allowed)
 | User logs into a mobile app | Authorization Code + PKCE | Same — PKCE is mandatory for mobile |
 | Backend service calls another service | Client Credentials | No user context needed |
 | CLI tool with no browser | Device Code | User authorizes on another device |
-| Legacy app migration | Resource Owner Password | Avoid for new systems |
-| Automated testing / scripts | Resource Owner Password or Client Credentials | OK for non-production |
+| Legacy password-grant migration | Replace with Authorization Code + PKCE | The Resource Owner Password grant must not be introduced or retained as test convenience |
+| Automated service tests / scripts | Client Credentials | Use a dedicated non-production client and least-privilege scopes |
+| Automated user-flow tests | Authorization Code + PKCE test browser/IdP harness | Exercise the same redirect and callback binding as production |
 
 ---
 

@@ -19,6 +19,11 @@ This guide explains HTTPX internals — **connection pooling**, **timeouts**, **
 
 ## Guide Structure
 
+**Default one-note route:** read [01_mental_model.md](01_mental_model.md), make one request, and
+print `response.http_version`. Stop there if you only need to understand the client → pool →
+transport path. Continue to pooling or timeouts when load tests show queueing or stalled phases;
+continue to advanced features or the comparison only for HTTP/2, streaming, or library selection.
+
 | File | Topic | Read if you need to understand... |
 |------|-------|-----------------------------------|
 | [01_mental_model.md](01_mental_model.md) | Request lifecycle | What happens when you make a request |
@@ -31,7 +36,10 @@ This guide explains HTTPX internals — **connection pooling**, **timeouts**, **
 
 ## Quick Reference
 
-### Minimal Production Client
+### Configuration excerpt
+
+Install HTTP/2 support with `pip install 'httpx[http2]'` before enabling `http2=True`. The excerpt
+belongs in an application lifespan or `async with` block that closes the client at shutdown.
 
 ```python
 import httpx
@@ -49,7 +57,14 @@ client = httpx.AsyncClient(
     ),
     http2=True,
 )
+
+response = await client.get("https://example.com")
+print(response.http_version)  # HTTP/2 when the server and dependency negotiate it
+await client.aclose()
 ```
+
+If this prints `HTTP/1.1`, the request still worked; either the optional HTTP/2 dependency is
+missing or the server did not negotiate HTTP/2.
 
 ### Key Concepts
 

@@ -13,6 +13,7 @@
 | File | Topic | Description |
 |------|-------|-------------|
 | [typing.md](typing.md) | Typing | Runtime vs static contracts, `Optional`, `TypedDict`, generics, protocols, `ParamSpec`, `Annotated` |
+| [data_model_choices.md](data_model_choices.md) | Data Model Choices | Standard dataclasses vs Pydantic dataclasses vs `BaseModel` by runtime and boundary contract |
 | [context_managers.md](context_managers.md) | Context Managers | Resource lifetimes, protocol mechanics, partial setup, async managers, `ExitStack` |
 | [decorators.md](decorators.md) | Decorators | Rebinding mental model, closures, `wraps`, parameters, async wrappers, stacking |
 | [exceptions.md](exceptions.md) | Exceptions | Stack unwinding, precise catches, chaining, domain translation, boundaries, exception groups |
@@ -30,7 +31,7 @@ a context manager.
 
 1. **Do:** [Typing](typing.md) — express the contract vocabulary used by later examples.
 2. **Understand:** [Context Managers](context_managers.md) — trace acquisition, use, and cleanup, including partial setup failure.
-3. **Extend the language model:** [Decorators](decorators.md) and [Exceptions](exceptions.md) — explain rebinding and failure propagation.
+3. **Choose data ownership:** [Data Model Choices](data_model_choices.md), then extend the language model with [Decorators](decorators.md) and [Exceptions](exceptions.md).
 4. **Harden the process boundary:** [Logging](logging/README.md), [Structured Logging](structlog_guide.md), [Configuration](configuration.md), and [Signals](signals.md).
 
 **Stop here if** you only needed the Python contract and lifetime model used by another path.

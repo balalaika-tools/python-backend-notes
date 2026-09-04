@@ -12,7 +12,9 @@ Every app needs to answer two questions:
 1. **Who is this user?** (authentication)
 2. **What can they do?** (authorization)
 
-Building this yourself means: a user database, password hashing, email verification, MFA, token generation, token validation, session management, forgot-password flows, brute-force protection... Cognito handles all of that.
+Building this yourself means: a user database, password hashing, email verification, multi-factor
+authentication (MFA), token generation, token validation, session management, forgot-password
+flows, and brute-force protection. Cognito handles those directory and authentication concerns.
 
 ---
 
@@ -30,7 +32,9 @@ When a user successfully logs in, the User Pool issues **JWT tokens** (cryptogra
 
 ### Identity Pools — "What AWS services can this user touch directly?"
 
-An **Identity Pool** takes a token (from a User Pool, Google, Facebook, SAML, etc.) and exchanges it for **temporary AWS credentials** (via STS).
+An **Identity Pool** takes a token from a User Pool, Google, Facebook, or Security Assertion Markup
+Language (SAML), an enterprise federation protocol, and exchanges it for temporary AWS credentials
+through AWS Security Token Service (STS).
 
 Use this only when your frontend needs to call AWS services directly — like uploading to S3 from a browser. If all your AWS calls go through your own backend, you don't need an Identity Pool.
 
@@ -48,7 +52,8 @@ Not necessarily. There are two completely separate places where policies live:
 
 Examples: admin sees all invoices, user sees only their own, manager can approve requests.
 
-These live in your **backend code**, not in AWS IAM. The backend reads the User Pool JWT and applies its own logic:
+These live in your **backend code**, not in AWS Identity and Access Management (IAM), the policy
+system for AWS resources. The backend reads the User Pool JWT and applies its own logic:
 
 ```
 Frontend  →  JWT in Authorization header  →  Your Backend
@@ -291,6 +296,10 @@ cognito_client.create_identity_provider(
 
 ### SAML / OIDC federation (enterprise SSO)
 
+OpenID Connect (OIDC) is an identity protocol built on OAuth 2.0; an identity provider (IdP) is the
+system that authenticates the employee. Single sign-on (SSO) lets that corporate identity cross
+into the application.
+
 For B2B apps where customers' employees log in via their own IdP (Okta, Azure AD, Ping). Same mechanism: configure a SAML provider in your user pool (upload the customer's IdP metadata XML); your app routes "Sign in with Corp SSO" buttons to the Cognito hosted UI with the right `identity_provider`; Cognito handles the SAML handshake; users land in your pool with claims mapped from SAML attributes.
 
 Federation keeps your code the same — the complexity moves to pool configuration. Budget for tenant provisioning and for claim-mapping edge cases (IdPs disagree on attribute names).
@@ -299,7 +308,9 @@ Federation keeps your code the same — the complexity moves to pool configurati
 
 ## ALB ↔ Cognito Native Integration
 
-If your API runs behind an AWS Application Load Balancer, you can **offload authentication to the ALB itself**. ALB handles the OAuth dance with Cognito, sets a session cookie, and forwards authenticated requests to your origin with the user's identity in a signed header.
+If your API runs behind an AWS Application Load Balancer (ALB), a managed HTTP load balancer, you
+can **offload authentication to the ALB itself**. ALB handles the OAuth dance with Cognito, sets a
+session cookie, and forwards authenticated requests to your origin with identity in a signed header.
 
 ```
 Browser  →  ALB (authenticates via Cognito)  →  Your FastAPI pod
@@ -309,7 +320,9 @@ Browser  →  ALB (authenticates via Cognito)  →  Your FastAPI pod
 
 - ALB listener rule "Action → Authenticate (Cognito)". ALB redirects unauthenticated requests to the Cognito hosted UI.
 - On successful auth, ALB sets an AWS-signed session cookie and forwards the request with an `x-amzn-oidc-data` header containing a signed JWT with the user's claims.
-- Your origin **still validates the JWT** (the signing key is at a well-known ALB URL) — don't trust the header without verification.
+- Your origin verifies the JWT signature with the regional ALB public key, checks that the header's
+  `signer` equals the exact expected load-balancer ARN, and rejects expired tokens before trusting
+  `sub` or any other claim. Signature validity alone does not prove the expected ALB issued it.
 
 **Pros:** no login code in your app, one fewer auth round trip per request (ALB caches the session), can add auth to legacy apps without touching code.
 

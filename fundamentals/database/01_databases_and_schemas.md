@@ -37,19 +37,22 @@ id | email       | name        id | title    | author_id | published
 
 ### PostgreSQL
 
-Full-featured, production-grade database. Use it for any application that will run in production.
+Full-featured client/server database. Use it when several processes or hosts write concurrently,
+when operations need PostgreSQL-specific types or indexes, or when replication and centralized
+operations matter.
 
 | Feature | Detail |
 |---------|--------|
-| Concurrency | MVCC — many readers/writers simultaneously without blocking |
+| Concurrency | Multi-version concurrency control (MVCC) — readers and writers usually proceed against different row versions |
 | Data types | Rich: `JSONB`, arrays, `UUID`, `INET`, `TSVECTOR`, ranges |
-| Indexes | B-tree, Hash, GIN (for JSONB/arrays), GiST, BRIN |
+| Indexes | B-tree and Hash, plus generalized inverted indexes (GIN), generalized search trees (GiST), and block range indexes (BRIN) for specialized lookups |
 | Full-text search | Built-in `tsvector` + `tsquery` |
 | Replication | Streaming replication, logical replication (see §Replication and Read Replicas below) |
 | Extensions | `pgvector` (embeddings), `PostGIS` (geospatial), `pg_trgm` (fuzzy search) |
 | Max DB size | No practical limit (tested to petabytes) |
 
-**When to use PostgreSQL**: Always. For web apps, APIs, microservices — PostgreSQL is the default right choice.
+**When to use PostgreSQL**: it is the default for multi-instance web services, write-heavy APIs,
+and centrally operated data. It is not automatically better for every embedded or single-host use.
 
 ### SQLite
 
@@ -74,7 +77,10 @@ File-based, zero-configuration, serverless. The database is a single `.db` file.
 - Local development (no Docker needed)
 - Unit and integration tests (fast, clean state per test)
 - CLI tools, scripts, small embedded apps
-- Never in production for a web server with concurrent writes
+- Single-host, low-write production services where operational simplicity matters more than horizontal write concurrency
+
+Move to a client/server database when multiple hosts must share the database, sustained concurrent
+writes cause lock waits, or you need centralized access control, replication, or failover.
 
 ### The SQLite-to-PostgreSQL Switch
 
@@ -87,7 +93,10 @@ During development you might use SQLite, then switch to PostgreSQL for productio
 | `LIKE` operator | Case-insensitive for ASCII | Case-sensitive (use `ILIKE`) |
 | `JSON` type | Stored as text | Native `JSONB` with indexing |
 
-**Recommendation**: Use PostgreSQL everywhere, including local dev (via Docker). Eliminates the "works on my machine" class of bugs.
+**Recommendation**: use PostgreSQL in development when the application depends on PostgreSQL
+semantics, extensions, or concurrent behavior; a container keeps that environment reproducible.
+Use SQLite deliberately for isolated tests, local tools, and bounded single-host workloads whose
+behavior does not need to match PostgreSQL.
 
 ---
 
@@ -329,7 +338,9 @@ Other good partial-index targets:
 
 - **Soft-delete columns**: `WHERE deleted_at IS NULL` — exclude the dead rows from the index.
 - **Flag columns with lopsided distribution**: `WHERE flagged = true` — the 0.1% of rows flagged for review.
-- **Recent activity**: `WHERE created_at > now() - interval '30 days'` — but this becomes stale; pair with a job that rebuilds the index (or prefer time-based partitioning).
+- **Fixed lifecycle buckets**: `WHERE archive_status = 'hot'` — move rows to `cold` with a scheduled
+  update, or use time-based partitioning. PostgreSQL requires partial-index predicates to be
+  immutable, so `now()` is not allowed in the index definition.
 
 Cost to remember: PostgreSQL can only use a partial index when the query's `WHERE` clause is a superset of the index predicate. A query without `status = 'active'` ignores this index entirely.
 
@@ -423,17 +434,15 @@ In Python, with SQLAlchemy, set the isolation level via `execution_options`
 `BEGIN` is too late and the driver may ignore or reject it:
 
 ```python
-# Per-transaction: bind the level to the connection before opening the txn
-conn = await session.connection(
-    execution_options={"isolation_level": "REPEATABLE READ"}
+# Bind the isolation level before a session can implicitly start a transaction.
+repeatable_read_engine = create_async_engine(
+    DATABASE_URL,
+    isolation_level="REPEATABLE READ",
 )
-async with session.begin():
-    # ... queries run under REPEATABLE READ
-    ...
+RepeatableReadSession = async_sessionmaker(repeatable_read_engine)
 
-# Or set it once on a dedicated engine (cleanest when a whole workload
-# needs the same level):
-engine = create_async_engine(DATABASE_URL, isolation_level="SERIALIZABLE")
+async with RepeatableReadSession.begin() as session:
+    rows = (await session.execute(report_query)).all()
 ```
 
 ### Savepoints — Nested Rollbacks
@@ -549,10 +558,19 @@ DELETE FROM users WHERE created_at < NOW() - INTERVAL '1 year' AND is_active = F
 -- Return deleted rows
 DELETE FROM users WHERE id = 1 RETURNING email;
 
--- Truncate (fast delete all rows, non-transactional — careful!)
-TRUNCATE TABLE users;
-TRUNCATE TABLE users RESTART IDENTITY CASCADE;  -- also resets sequences and cascades
+-- Destructive rehearsal on a verified disposable database.
+BEGIN;
+SELECT current_database();  -- stop unless this is the expected test database
+TRUNCATE TABLE users RESTART IDENTITY CASCADE;
+SELECT count(*) FROM users;  -- 0
+ROLLBACK;
+SELECT count(*) FROM users;  -- original rows are visible again
 ```
+
+PostgreSQL `TRUNCATE` is transactional for table data, but it takes an `ACCESS EXCLUSIVE` lock and
+is not MVCC-safe for snapshots taken before the truncation. `CASCADE` also truncates referencing
+tables and `RESTART IDENTITY` resets owned sequences, so verify the target and dependent tables
+before committing it.
 
 ---
 
@@ -728,7 +746,12 @@ Postgres replicates via the **Write-Ahead Log (WAL)**. Every change the primary 
 
 ### Streaming replication (the default for RDS / Aurora / self-hosted HA)
 
-The primary ships WAL records to the replica continuously. The replica applies them, usually within a few milliseconds. **It's asynchronous** — the primary acks the client as soon as it writes locally; replicating to the replica is a separate step. Synchronous replication is a configuration option (`synchronous_commit = on`) but adds latency to every write, so most deployments stay async.
+The primary ships WAL records to the replica continuously. In the default asynchronous setup, the
+primary can acknowledge locally before a standby confirms receipt. Synchronous replication requires
+both `synchronous_standby_names` to select eligible standbys and a `synchronous_commit` level that
+waits for the required remote acknowledgement. Stronger remote acknowledgement reduces the data-loss
+window but adds standby/network latency to commits; `synchronous_commit=on` alone does not select a
+synchronous standby.
 
 **Replication lag** is the time between a write committing on the primary and being visible on a replica. On a healthy system it's sub-second; under heavy write load it can grow to seconds or minutes. Monitoring lag is non-negotiable:
 

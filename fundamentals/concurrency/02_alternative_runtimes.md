@@ -133,6 +133,27 @@ Pure Python modules with no process-global assumptions are the easiest candidate
 
 Test the exact production dependency set, including observability agents and transitive native modules. A successful unit test of the worker function is not enough; exercise repeated pool creation, worker initialization, exceptions, and shutdown under load.
 
+This Python 3.14 smoke test makes import, submission, result transport, and shutdown observable:
+
+```python
+from concurrent.futures import InterpreterPoolExecutor
+
+def import_and_run(value: int) -> int:
+    import json  # replace/add every production dependency here
+    return json.loads(str(value)) + 1
+
+if __name__ == "__main__":
+    with InterpreterPoolExecutor(max_workers=2) as pool:
+        print(list(pool.map(import_and_run, [1, 2])))
+
+# [2, 3]
+```
+
+A clean `[2, 3]` followed by process exit proves this small path. An incompatible import or
+initializer instead raises its original exception with `ExecutionFailed` as the cause, or surfaces
+`ExecutionFailed` directly when the original cannot be preserved. Run this with the exact locked
+dependencies and agents used by the service; a stdlib-only success does not clear that gate.
+
 Worker exceptions are normally preserved, with an `ExecutionFailed` summary attached as their cause. If the original exception cannot be preserved, the executor may surface `ExecutionFailed` directly. An initializer failure breaks the pool and causes pending submissions to fail.
 
 ---

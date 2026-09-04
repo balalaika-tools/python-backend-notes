@@ -34,14 +34,16 @@ python-backend-notes/
 │
 │ ── INFRASTRUCTURE ──────────────────────────────────────
 ├── infrastructure/
-│   └── redis/             Data structures, caching, pub/sub, Python clients
+│   ├── redis/             Data structures, caching, pub/sub, Python clients
+│   └── kafka/             Event logs, consumers, reliability, and operations
 │
 │ ── BACKGROUND WORK ─────────────────────────────────────
 ├── background_work/       Task/workflow architecture, reliability, execution, and frameworks
 │
 │ ── ADVANCED ARCHITECTURE ───────────────────────────────
 ├── architecture/
-│   └── long_running_tasks/  Orchestration, worker patterns, client delivery, infra
+│   ├── hexagonal_architecture/  Ports, adapters, dependency direction, APIs, workers, and GenAI
+│   └── long_running_tasks/      Orchestration, worker patterns, client delivery, infra
 │
 │ ── OPERATIONS ──────────────────────────────────────────
 └── operations/
@@ -64,6 +66,7 @@ python-backend-notes/
 | Guide | Description |
 |-------|-------------|
 | [Typing](fundamentals/core_concepts/typing.md) | Contracts, `TypedDict`, generics, protocols, `ParamSpec`, `Annotated` |
+| [Data Model Choices](fundamentals/core_concepts/data_model_choices.md) | Standard dataclasses, Pydantic dataclasses, and `BaseModel` by boundary role |
 | [Context Managers](fundamentals/core_concepts/context_managers.md) | Resource lifetimes, protocol mechanics, async managers, `ExitStack` |
 | [Decorators](fundamentals/core_concepts/decorators.md) | Rebinding and closures, metadata, parameters, async wrappers, stacking |
 | [Exceptions](fundamentals/core_concepts/exceptions.md) | Stack unwinding, precise catches, chaining, translation, boundary policy |
@@ -147,6 +150,7 @@ python-backend-notes/
 | [04 — Async SQLAlchemy](fundamentals/database/04_async_sqlalchemy.md) | Async engine/session, FastAPI integration, CRUD, transactions |
 | [05 — Connection Pooling](fundamentals/database/05_connection_pooling.md) | Pool sizing, PgBouncer, monitoring, failure modes |
 | [06 — Alembic Deep-Dive](fundamentals/database/06_alembic.md) | Data migrations, enums, branching, CI/CD, production safety, lock-free patterns |
+| [07 — SQLModel Decision Guide](fundamentals/database/07_sqlmodel_decision_guide.md) | When combined SQLAlchemy/Pydantic models help and when direct SQLAlchemy is clearer |
 
 #### Auth — [full README](fundamentals/auth/README.md)
 
@@ -202,6 +206,18 @@ python-backend-notes/
 | [05 — Rate Limiting](infrastructure/redis/05_rate_limiting.md) | Token bucket, sliding/fixed window, atomic Lua scripts |
 | [06 — HA & Persistence](infrastructure/redis/06_ha_and_persistence.md) | RDB/AOF, replication, Sentinel vs Cluster, failure modes, `maxmemory` |
 
+#### Apache Kafka — [full README](infrastructure/kafka/README.md)
+
+[![Apache Kafka](https://img.shields.io/badge/Apache_Kafka-4.3.x-231F20.svg?logo=apachekafka&logoColor=white)](https://kafka.apache.org/)
+
+| Guide | Description |
+|-------|-------------|
+| [Fundamentals](infrastructure/kafka/fundamentals/README.md) | First event, retained logs, partitioning, consumer groups, and KRaft replication |
+| [Application Design](infrastructure/kafka/application_design/README.md) | Event contracts, Python clients, processing loops, and topic topology |
+| [Reliability](infrastructure/kafka/reliability/README.md) | Delivery semantics, transactions, retries, replay, outbox, and CDC |
+| [Operations](infrastructure/kafka/operations/README.md) | Security, capacity, observability, upgrades, and disaster recovery |
+| [Ecosystem & Decisions](infrastructure/kafka/ecosystem/README.md) | Connect, stream processing, share groups, and alternatives |
+
 ---
 
 ### Background Work — [full README](background_work/README.md)
@@ -233,6 +249,7 @@ python-backend-notes/
 
 | Guide | Description |
 |-------|-------------|
+| [Hexagonal Architecture](architecture/hexagonal_architecture/README.md) | Derive ports and adapters from change pressure, then apply them to FastAPI, workers, GenAI, testing, and migrations |
 | [Long-Running Tasks](architecture/long_running_tasks/README.md) | Orchestration, worker patterns, client delivery, infrastructure, sagas/outbox |
 
 ---

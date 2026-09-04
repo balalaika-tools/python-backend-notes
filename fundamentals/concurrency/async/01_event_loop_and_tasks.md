@@ -288,12 +288,15 @@ For a dedicated pool, isolation between blocking dependencies, or finer sizing, 
 
 ## 9. Common Failure Modes and Diagnostics
 
+Start with the **bold rows**: loop blocking, unowned failures, and unbounded fan-out. Inspect
+shutdown and cancellation timing after those are ruled out.
+
 | Symptom | Likely cause | First check |
 |---------|--------------|-------------|
-| All requests pause together | Synchronous I/O or CPU work blocks the loop | Enable asyncio debug mode and inspect slow callbacks. |
+| **All requests pause together** | Synchronous I/O or CPU work blocks the loop | Enable asyncio debug mode and inspect slow callbacks. |
 | `coroutine was never awaited` | A coroutine object was created and discarded | Await it or schedule it in an owned scope. |
-| `Task exception was never retrieved` | A detached task failed without supervision | Use `TaskGroup` or retain and inspect the task. |
-| Memory and sockets spike during fan-out | Too many tasks or active operations | Add admission control, a bounded queue, and capacity limits. |
+| **`Task exception was never retrieved`** | A detached task failed without supervision | Use `TaskGroup` or retain and inspect the task. |
+| **Memory and sockets spike during fan-out** | Too many tasks or active operations | Add admission control, a bounded queue, and capacity limits. |
 | Shutdown hangs | A task ignores cancellation or waits forever | Add deadlines and make waits shutdown-aware. |
 | Timeouts exceed the configured duration | Cancellation cleanup is slow or blocking | Inspect the timed operation and its `finally` blocks. |
 

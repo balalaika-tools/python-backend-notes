@@ -149,13 +149,13 @@ client = httpx.AsyncClient(transport=transport)
 
 ### What Gets Retried
 
-- Connection failures
-- Network errors (TCP reset, etc.)
+Only `httpx.ConnectError` and `httpx.ConnectTimeout` are retried by this transport option.
 
 ### What Does NOT Get Retried
 
 - HTTP errors (4xx, 5xx)
-- Timeouts
+- Read, write, and pool timeouts
+- Resets or failures after a connection has been established
 - Application errors
 
 ### Safe for Idempotent Methods
@@ -167,7 +167,8 @@ POST, PUT, DELETE, PATCH → retry with caution
 
 ### Recommendation
 
-For most production use, implement retries in application code:
+For broader retry policy, use an explicit bounded retry layer that checks the HTTP method,
+idempotency key, exception type, and response status before repeating an operation:
 
 ```python
 # Application-level retry (more control)

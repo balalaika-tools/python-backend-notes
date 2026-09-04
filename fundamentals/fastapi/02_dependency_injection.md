@@ -433,8 +433,15 @@ Useful when:
 Apply dependencies to an entire app or router:
 
 ```python
+import secrets
+
+from fastapi import Header, HTTPException
+
+EXPECTED_API_KEY = settings.api_key  # loaded from trusted configuration; never log it
+
+
 def verify_api_key(api_key: str = Header(...)):
-    if api_key != "secret":
+    if not secrets.compare_digest(api_key, EXPECTED_API_KEY):
         raise HTTPException(status_code=403)
 
 # App-level

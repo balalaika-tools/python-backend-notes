@@ -44,7 +44,7 @@ response = cognito.create_user_pool(
     # Auto-verify email (sends verification code on sign-up)
     AutoVerifiedAttributes=['email'],
 
-    # MFA — IMMUTABLE
+    # Multi-factor authentication (MFA) policy — mutable, but sign-in-impacting
     MfaConfiguration='OPTIONAL',           # 'OFF' | 'OPTIONAL' | 'ON'
     EnabledMfas=['SOFTWARE_TOKEN_MFA'],    # TOTP apps like Google Authenticator
 
@@ -92,7 +92,14 @@ response = cognito.create_user_pool(
 )
 
 pool_id = response['UserPool']['Id']
+described = cognito.describe_user_pool(UserPoolId=pool_id)['UserPool']
+assert described['Id'] == pool_id
+print(described['Id'], described['Status'])  # us-east-1_..., Enabled
 ```
+
+If `describe_user_pool` returns the same ID and `Enabled`, creation is observable. A frequent first
+failure is `InvalidParameterException` from an incompatible sign-in/schema choice; fix the request
+rather than retrying it unchanged.
 
 ### Immutable Settings (decide before creating)
 - `UsernameAttributes` or `AliasAttributes` — how users sign in
@@ -107,6 +114,12 @@ change, but do not treat pool recreation as required.
 ---
 
 ## App Clients
+
+A public browser/mobile client cannot keep a secret, so it uses redirect-bound flows such as
+Authorization Code with PKCE. A confidential service client can protect a secret and use client
+credentials. An OAuth user client adds redirect URIs and allowed scopes. These are distinct trust
+profiles over the same directory: the settings constrain how each caller proves identity and which
+tokens it may request; they do not create separate users.
 
 ### Creating an App Client
 
@@ -159,6 +172,12 @@ response = cognito.create_user_pool_client(
 
 client_id     = response['UserPoolClient']['ClientId']
 client_secret = response['UserPoolClient'].get('ClientSecret')  # None if GenerateSecret=False
+described = cognito.describe_user_pool_client(
+    UserPoolId=pool_id, ClientId=client_id
+)['UserPoolClient']
+assert described['ClientId'] == client_id
+print(described['ClientName'], bool(described.get('ClientSecret')))
+# web-app False
 ```
 
 ### Multiple Clients — Common Pattern
@@ -224,21 +243,27 @@ Password sent in plaintext over HTTPS. Fine for server-side code, not recommende
 
 ```python
 response = cognito.initiate_auth(
-    ClientId=client_id,
+    ClientId=password_test_client_id,  # test client without a secret; flow explicitly enabled
     AuthFlow='USER_PASSWORD_AUTH',
     AuthParameters={
         'USERNAME': 'jane@example.com',
-        'PASSWORD': 'MyPass123!',
+        'PASSWORD': test_user_password,  # loaded from a test secret; never log it
     },
 )
 
 # Could return tokens immediately, or a challenge (e.g. MFA)
 if 'AuthenticationResult' in response:
     tokens = response['AuthenticationResult']
+    print(bool(tokens.get('AccessToken')), bool(tokens.get('IdToken')))
+    # True True (token values remain redacted)
 elif 'ChallengeName' in response:
     # Handle MFA or NEW_PASSWORD_REQUIRED challenge
     handle_challenge(response)
 ```
+
+`NotAuthorizedException` is the common failure when the credentials are wrong or the app client
+does not enable `ALLOW_USER_PASSWORD_AUTH`. A challenge is also a valid configured outcome; it must
+advance through the exhaustive loop below rather than being treated as failure.
 
 ### Handling Challenges
 
@@ -282,7 +307,7 @@ def authenticate(username, password, client_id):
             )
 
         elif challenge == 'SOFTWARE_TOKEN_MFA':
-            code = input("Enter TOTP code: ")
+            code = input("Enter time-based one-time password (TOTP) code: ")
             response = cognito.respond_to_auth_challenge(
                 ClientId=client_id,
                 ChallengeName='SOFTWARE_TOKEN_MFA',
@@ -292,6 +317,9 @@ def authenticate(username, password, client_id):
                     'SOFTWARE_TOKEN_MFA_CODE': code,
                 },
             )
+
+        else:
+            raise RuntimeError(f"Unsupported Cognito challenge: {challenge}")
 
     return response['AuthenticationResult']
 ```
@@ -388,11 +416,25 @@ cognito.admin_disable_user(UserPoolId=pool_id, Username='jane@example.com')
 # Re-enable
 cognito.admin_enable_user(UserPoolId=pool_id, Username='jane@example.com')
 
-# Delete user
-cognito.admin_delete_user(UserPoolId=pool_id, Username='jane@example.com')
-
 # Force user to sign out everywhere (invalidates all tokens)
 cognito.admin_user_global_sign_out(UserPoolId=pool_id, Username='jane@example.com')
+```
+
+Deletion is irreversible: the directory record and attributes cannot be restored. Keep it outside
+general administration snippets and require the operator to repeat the exact target:
+
+```python
+def permanently_delete_user(*, username: str, confirmation: str) -> None:
+    if confirmation != f"delete:{username}":
+        raise ValueError("confirmation must exactly match delete:<username>")
+    cognito.admin_delete_user(UserPoolId=pool_id, Username=username)
+
+
+permanently_delete_user(
+    username="jane@example.com",
+    confirmation="delete:jane@example.com",
+)
+# Success: no response body. A second call raises UserNotFoundException.
 ```
 
 ### List Users
@@ -471,15 +513,17 @@ In the JWT, group membership appears as:
 
 ## Lambda Triggers
 
-Lambda triggers let you hook into Cognito's auth lifecycle to customize behavior.
+AWS Lambda triggers—functions invoked at Cognito lifecycle points—customize behavior. Most
+applications start with the **bold rows** demonstrated here: post confirmation for provisioning and
+pre-token generation for claims. The remaining triggers are conditional reference options.
 
 | Trigger | When it fires | Common use |
 |---------|--------------|-----------|
-| **Pre sign-up** | Before a new user account is created | Validate email domain, auto-confirm, auto-verify |
-| **Post confirmation** | After user confirms their account | Add user to default group, sync to your DB |
+| Pre sign-up | Before a new user account is created | Validate email domain, auto-confirm, auto-verify |
+| **Post confirmation** | After user confirms their account | Add user to default group, sync to your database (DB) |
 | **Pre authentication** | Before credentials are checked | Block certain users, log attempts |
 | **Post authentication** | After successful login | Audit logging, last-login tracking |
-| **Pre token generation** | Before tokens are issued | Add custom claims to JWT, modify group claims |
+| **Pre token generation** | Before tokens are issued | Add custom claims to a JSON Web Token (JWT), modify group claims |
 | **Custom message** | Before verification/welcome emails are sent | Customize email content and links |
 | **User migration** | When a user doesn't exist in pool but tries to sign in | Migrate users from legacy auth system transparently |
 | **Define auth challenge** | Start of a custom auth flow | Define what the next challenge is |
@@ -605,7 +649,7 @@ cognito.create_user_pool_domain(
     UserPoolId=pool_id,
 )
 
-# Or your own domain (requires ACM certificate)
+# Or your own domain (requires an AWS Certificate Manager (ACM) TLS certificate)
 cognito.create_user_pool_domain(
     Domain='auth.yourapp.com',
     UserPoolId=pool_id,

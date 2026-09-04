@@ -37,6 +37,10 @@ Avoid process pools for tiny tasks where pickling and scheduling overhead cost m
 2. **State and safety** — revisit process-local globals and external coordination before sharing state.
 3. **Alternative runtimes** — compare subinterpreters or free-threaded Python only after the process model is clear.
 
+**Milestone:** entry 1 prints the CPU example's results from picklable top-level functions and exits
+cleanly. Stop there for independent CPU jobs. Continue for shared-state coordination or when
+measurements justify evaluating an alternative runtime.
+
 ---
 
 ## Commands

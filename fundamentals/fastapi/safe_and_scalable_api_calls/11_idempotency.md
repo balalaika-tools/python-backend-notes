@@ -103,6 +103,7 @@ The **store result** step must happen in the same transaction as the effect it r
 ```python
 import hashlib
 import json
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request, status
@@ -131,6 +132,7 @@ class IdempotencyRecord(Base):
     response_body = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     completed_at = Column(DateTime(timezone=True), nullable=True)
+    lease_expires_at = Column(DateTime(timezone=True), nullable=False)
 
 
 def _hash_body(body: bytes) -> str:
@@ -147,6 +149,7 @@ async def handle_idempotent(
     execute,  # async callable → returns (status_code, response_dict)
 ) -> tuple[int, dict]:
     body_hash = _hash_body(request_body)
+    lease_expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
 
     # 1. Atomic reserve: INSERT ... ON CONFLICT DO NOTHING
     stmt = (
@@ -157,12 +160,30 @@ async def handle_idempotent(
             tenant_id=tenant_id,
             request_hash=body_hash,
             status="in_flight",
+            lease_expires_at=lease_expires_at,
         )
         .on_conflict_do_nothing(index_elements=["key", "endpoint", "tenant_id"])
         .returning(IdempotencyRecord.id)
     )
     result = await db.execute(stmt)
     inserted_id = result.scalar_one_or_none()
+
+    if inserted_id is None:
+        # Atomically take over only an expired reservation with the same meaning.
+        takeover = await db.execute(
+            update(IdempotencyRecord)
+            .where(IdempotencyRecord.key == key)
+            .where(IdempotencyRecord.endpoint == endpoint)
+            .where(IdempotencyRecord.tenant_id == tenant_id)
+            .where(IdempotencyRecord.request_hash == body_hash)
+            .where(IdempotencyRecord.status == "in_flight")
+            .where(IdempotencyRecord.lease_expires_at <= func.now())
+            .values(lease_expires_at=lease_expires_at)
+            .returning(IdempotencyRecord.id)
+        )
+        inserted_id = takeover.scalar_one_or_none()
+        if inserted_id is not None:
+            await db.commit()
 
     if inserted_id is None:
         # Conflict — someone else owns this key
@@ -190,8 +211,7 @@ async def handle_idempotent(
     try:
         status_code, body = await execute()
     except Exception:
-        # Leave the row as in_flight; a retry after TTL will re-execute.
-        # Or delete it here if you prefer retries to be immediate.
+        # Leave the lease in flight. Only one retry can take it over after expiry.
         raise
 
     # 3. Persist the result

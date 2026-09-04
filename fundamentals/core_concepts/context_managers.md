@@ -45,7 +45,7 @@ The important guarantees, once `__enter__` has succeeded:
   because the context was never entered. `__enter__` must clean up anything it
   acquired before failing.
 
-> **Mental model**: a context manager owns a lifetime. Enter starts it; exit ends
+> **Key insight**: a context manager owns a lifetime. Enter starts it; exit ends
 > it. The body borrows the resource only inside that boundary.
 
 ---
@@ -180,7 +180,7 @@ async def main():
 
 ## 6. `ExitStack` — Dynamic Composition
 
-When you do not know *ahead of time* how many context managers you need — or you need to build them in a loop — `contextlib.ExitStack` lets you push them onto a stack that unwinds in LIFO order on exit.
+When you do not know *ahead of time* how many context managers you need — or you need to build them in a loop — `contextlib.ExitStack` lets you push them onto a stack that unwinds in last-in, first-out (LIFO) order on exit. If `a.txt` opens before `b.txt`, `b.txt` closes first, preserving the nesting order ordinary `with` blocks would have used.
 
 ```python
 from contextlib import ExitStack

@@ -298,51 +298,60 @@ from sqlalchemy.pool import NullPool
 # Point your connection string at PgBouncer instead of PostgreSQL directly
 DATABASE_URL = "postgresql+asyncpg://user:pass@pgbouncer-host:6432/mydb"
 
-# CRITICAL with PgBouncer transaction mode — two separate things to get right:
+# With PgBouncer transaction mode, make two measured choices:
 #   1. Don't double-pool: let PgBouncer be the pool (NullPool, or a tiny QueuePool).
-#   2. Disable client-side prepared statements (see "PgBouncer Limitations" below) —
-#      this is mandatory in transaction mode regardless of pool choice.
+#   2. Match prepared-statement behavior to PgBouncer's max_prepared_statements setting.
 engine = create_async_engine(
     DATABASE_URL,
     poolclass=NullPool,                       # no internal pool — PgBouncer pools instead
-    connect_args={"statement_cache_size": 0}, # MANDATORY in transaction mode
+    connect_args={"statement_cache_size": 0}, # conservative for an unconfigured/older proxy
 )
 
 # Note: NullPool and pool_size/max_overflow are mutually exclusive — NullPool ignores
 # size args. If you prefer a tiny pool instead of NullPool, drop poolclass and use:
 #     pool_size=2, max_overflow=5, pool_pre_ping=True
-# but keep connect_args={"statement_cache_size": 0} either way.
+# and verify pool wait/client-connection cost before choosing either topology.
 ```
 
 **Why use `NullPool` or a tiny pool with PgBouncer?**
 
-With PgBouncer in transaction mode, SQLAlchemy's internal pool holds connections open even between transactions. PgBouncer can't reuse those held connections for other clients. To let PgBouncer do its job, either use `NullPool` (each request opens/closes a PgBouncer connection, and PgBouncer reuses server connections) or use a very small pool.
+In transaction mode, PgBouncer releases the **server** connection after each transaction even while
+SQLAlchemy retains the client-side connection to PgBouncer. Choose `NullPool` or a small client pool
+to control client-connection cost, queueing, and prepared-statement cleanup—not because an idle
+client connection pins a server connection. Measure both layers under the real topology.
 
 ### PgBouncer Limitations
 
-In transaction mode, these PostgreSQL features break because they depend on persistent server-side state:
+In transaction mode, behavior depends on whether state is transaction-local or session-local:
 
 | Feature | Problem |
 |---------|---------|
-| `SET LOCAL` / `SET SESSION` | Cleared between transactions |
-| Advisory locks (`pg_advisory_lock`) | Tied to session, not transaction |
-| `LISTEN` / `NOTIFY` | Session-scoped |
+| `SET LOCAL` | Works inside the current transaction |
+| `SET SESSION` | Unsafe because a later transaction may use another server session |
+| Transaction advisory locks (`pg_advisory_xact_lock`) | Work inside one transaction |
+| Session advisory locks (`pg_advisory_lock`) | Unsafe because ownership is session-scoped |
+| `NOTIFY` | Works as a statement; delivery is committed with the transaction |
+| `LISTEN` | Unsafe because registration is session-scoped |
 | Temporary tables (`CREATE TEMP TABLE`) | Session-scoped |
-| Prepared statements (named) | Session-scoped — disable in driver |
+| Protocol-level named prepared statements | Supported only when PgBouncer prepared-statement tracking is enabled and sized |
+| SQL `PREPARE` / `DEALLOCATE` | Session-scoped and not rewritten by PgBouncer |
 | Cursors outside transactions | Session-scoped |
 
 For prepared statements with asyncpg through PgBouncer:
 
 ```python
-# asyncpg automatically prepares statements — disable this with PgBouncer.
-# Set BOTH: the SQLAlchemy-level cache (prepared_statement_cache_size) and the
-# asyncpg-native cache (statement_cache_size, passed via connect_args).
+# Conservative option for an older or unconfigured PgBouncer: disable both caches.
 engine = create_async_engine(
-    DATABASE_URL,
-    prepared_statement_cache_size=0,              # SQLAlchemy-level
+    DATABASE_URL + "?prepared_statement_cache_size=0",  # asyncpg dialect DBAPI option
     connect_args={"statement_cache_size": 0},     # asyncpg-level
 )
 ```
+
+Current PgBouncer can track protocol-level named prepared statements when
+`max_prepared_statements` is nonzero. If that feature is enabled, keep caching and use unique
+statement names as required by the SQLAlchemy asyncpg dialect. Verify with repeated transactions
+through PgBouncer; success is stable execution without `DuplicatePreparedStatementError` or
+`InvalidSQLStatementNameError` after connections are reassigned.
 
 For psycopg3:
 
@@ -474,8 +483,24 @@ FROM pg_stat_activity,
      (SELECT setting::int AS max_conn FROM pg_settings WHERE name = 'max_connections') x
 GROUP BY max_conn;
 
--- Kill a specific connection
-SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid = 12345;
+```
+
+Termination rolls back the target's open transaction and disconnects its client. First use the
+read-only query above to identify an exact application PID and verify its database, user,
+`backend_type`, state, query, and duration. Never target the current session, an administrator, or a
+replication/background worker. Then run the bounded destructive step with that verified literal:
+
+```sql
+SELECT pg_terminate_backend(12345) AS terminated
+WHERE 12345 <> pg_backend_pid()
+  AND EXISTS (
+    SELECT 1 FROM pg_stat_activity
+    WHERE pid = 12345
+      AND backend_type = 'client backend'
+      AND usename = 'myapp'
+      AND datname = 'myapp'
+  );
+-- terminated = true means PostgreSQL sent termination; zero rows means the guard refused it.
 ```
 
 ---
@@ -501,12 +526,15 @@ async with async_session() as session:
 # 2. Set statement timeout to prevent runaway queries
 engine = create_async_engine(
     DATABASE_URL,
-    connect_args={"options": "-c statement_timeout=30000"},  # 30s in ms
+    connect_args={"server_settings": {"statement_timeout": "30000"}},
 )
 
 # 3. Increase pool size if the workload genuinely needs more connections
 # 4. Set query timeouts to prevent connection hogging
 ```
+
+When the server cancels a statement at this boundary, asyncpg surfaces SQLSTATE `57014`
+(`query_canceled`); that is the signal that the server setting, rather than a pool wait, fired.
 
 ### Stale Connections (without pre_ping)
 

@@ -8,7 +8,7 @@ up
 
 > Type hints are not enforced at runtime by Python itself — they exist for readers, IDEs, and type checkers (mypy, pyright). In this corpus Pydantic and FastAPI read them at runtime to derive validation and schemas, so on the backend they do real work beyond documentation. This guide covers the parts you actually hit writing FastAPI / SQLAlchemy / data code.
 
-> **Mental model**: a type hint is a contract for tools and readers. It becomes
+> **Key insight**: a type hint is a contract for tools and readers. It becomes
 > runtime behavior only when some library explicitly inspects it.
 
 ---
@@ -27,7 +27,8 @@ flag: bool = True
 blob: bytes = b"\x00"
 ```
 
-Collections — **prefer the built-in generic syntax** (PEP 585, Python 3.9+):
+Collections — **prefer the built-in generic syntax** standardized by Python Enhancement Proposal
+(PEP) 585 in Python 3.9+:
 
 ```python
 names: list[str] = []
@@ -179,7 +180,9 @@ def parse_all(cls: type[ModelT], rows: list[dict]) -> list[ModelT]:
 users: list[User] = parse_all(User, rows)   # ModelT is User
 ```
 
-Python 3.12+ has a cleaner PEP 695 syntax: `def first[T](items: list[T]) -> Optional[T]: ...`. Both forms work; the `TypeVar` form is more portable.
+Python 3.12+ has the cleaner generic-function syntax introduced by PEP 695, where a function
+declares type parameter `T` directly after its name. Both forms work; the `TypeVar` form is more
+portable across supported Python versions.
 
 ---
 
@@ -199,7 +202,7 @@ async def shutdown(resource: SupportsClose) -> None:
     await resource.aclose()
 ```
 
-An `httpx.AsyncClient` has `.aclose()`, so it satisfies `SupportsClose` even though it doesn't inherit anything special. This is the idiomatic Python alternative to ABC-based interfaces.
+An `httpx.AsyncClient` has `.aclose()`, so it satisfies `SupportsClose` even though it doesn't inherit anything special. This is the idiomatic Python alternative to abstract base class (ABC) interfaces.
 
 Use Protocol when:
 

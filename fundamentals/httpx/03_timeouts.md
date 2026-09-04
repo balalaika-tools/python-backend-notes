@@ -46,7 +46,7 @@ Request lifecycle:
 **What it covers**: Time waiting for a connection from the pool.
 
 ```python
-httpx.Timeout(pool=5.0)
+httpx.Timeout(30.0, pool=5.0)
 ```
 
 ### When This Applies
@@ -76,7 +76,7 @@ await client.get(...)  # waits up to 5s for free socket
 **What it covers**: Establishing a new connection.
 
 ```python
-httpx.Timeout(connect=5.0)
+httpx.Timeout(30.0, connect=5.0)
 ```
 
 ### Phases Included
@@ -107,7 +107,7 @@ httpx.Timeout(connect=5.0)
 **What it covers**: Sending request data to the server.
 
 ```python
-httpx.Timeout(write=10.0)
+httpx.Timeout(30.0, write=10.0)
 ```
 
 ### What Gets Sent
@@ -140,7 +140,7 @@ httpx.Timeout(write=10.0)
 **What it covers**: Receiving response data.
 
 ```python
-httpx.Timeout(read=30.0)
+httpx.Timeout(30.0, read=30.0)
 ```
 
 ### Critical Behavior
@@ -173,7 +173,7 @@ This makes streaming safe with reasonable timeouts.
 ```python
 # This is NOT "total request time = 30s"
 # This is "max 30s between any two data chunks"
-httpx.Timeout(read=30.0)
+httpx.Timeout(30.0, read=30.0)
 ```
 
 For total request time, use application-level timeout:
@@ -210,17 +210,12 @@ HTTPX default is 5 seconds for each phase.
 4. read    → receive response
 ```
 
-### Total Request Time
+### Phase timeouts do not add up to a total deadline
 
-```
-max_total = pool + connect + write + read
-```
-
-But typically:
-- `pool` only applies under load
-- `connect` only for new connections
-- `write` is usually fast
-- `read` dominates for slow APIs
+Pool and connect are conditional, while read and write limits bound periods of network inactivity
+and may reset as chunks move. A streaming response can therefore run longer than the sum of the
+four configured values. Put an explicit outer application deadline around the operation when the
+caller needs a maximum wall-clock budget.
 
 ---
 
@@ -341,7 +336,7 @@ client = httpx.AsyncClient(timeout=30.0)
 **Fix**:
 
 ```python
-timeout = httpx.Timeout(connect=5.0, read=30.0)
+timeout = httpx.Timeout(30.0, connect=5.0, pool=5.0, write=10.0)
 ```
 
 ### ❌ No Timeout
@@ -359,7 +354,7 @@ client = httpx.AsyncClient(timeout=None)
 
 ```python
 # WRONG mental model
-timeout = httpx.Timeout(read=30.0)
+timeout = httpx.Timeout(30.0, read=30.0)
 # "My request will complete in 30s max" ← FALSE
 ```
 
@@ -381,7 +376,7 @@ timeout = httpx.Timeout(read=30.0)
 ```python
 # Transport-level: HTTPX timeout
 client = httpx.AsyncClient(
-    timeout=httpx.Timeout(read=30.0)
+    timeout=httpx.Timeout(30.0, read=30.0)
 )
 
 # Application-level: asyncio.timeout

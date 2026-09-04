@@ -20,6 +20,7 @@ This is the **recommended baseline** for LLM or external API calls:
 import asyncio
 import httpx
 import random
+import uuid
 from typing import Optional
 from aiolimiter import AsyncLimiter
 
@@ -68,6 +69,7 @@ async def call_llm(payload: dict):
     - Call timeout (latency control)
     - Retry logic with proper exception handling
     """
+    idempotency_key = str(uuid.uuid4())  # one logical operation; reused by every attempt
     try:
         # Total budget includes admission, attempts, and retry sleep.
         async with asyncio.timeout(75):
@@ -88,6 +90,7 @@ async def call_llm(payload: dict):
                                 response = await client.post(
                                     "https://vendor.example/api",
                                     json=payload,
+                                    headers={"Idempotency-Key": idempotency_key},
                                 )
                         except TimeoutError as exc:
                             raise AttemptDeadlineExceeded from exc
@@ -355,6 +358,7 @@ async def classify_and_handle(e: Exception, attempt: int):
 ```python
 import asyncio
 import httpx
+import uuid
 from typing import Optional
 import structlog
 
@@ -379,39 +383,44 @@ async def call_llm_production(
         payload_keys=list(payload.keys()),
     )
     
+    idempotency_key = request_id or str(uuid.uuid4())
+
     for attempt in range(3):
         log = log.bind(attempt=attempt)
         
         try:
-            # Queue timeout: admission control
-            async with asyncio.timeout(5):
-                log.debug("acquiring_rate_limit")
-                
-                async with llm_rate:
+            # Admission owns only queue/permit acquisition. Local saturation must
+            # not be reported as a downstream timeout.
+            try:
+                async with asyncio.timeout(5):
+                    log.debug("acquiring_rate_limit")
+                    await llm_rate.acquire()
                     log.debug("acquiring_semaphore")
-                    
-                    async with llm_sem:
-                        log.info("calling_vendor")
-                        
-                        # Call timeout: per-attempt latency control
-                        async with asyncio.timeout(30):
-                            response = await client.post(
-                                "https://vendor/api",
-                                json=payload,
-                                headers={"X-Request-ID": request_id} if request_id else {},
-                            )
-                            response.raise_for_status()
-                            
-                            result = response.json()
-                            
-                            log.info(
-                                "vendor_success",
-                                status_code=response.status_code,
-                            )
-                            
-                            return result
+                    await llm_sem.acquire()
+            except TimeoutError as exc:
+                raise AdmissionTimeout("local capacity unavailable") from exc
+
+            try:
+                async with asyncio.timeout(30):
+                    log.info("calling_vendor")
+                    response = await client.post(
+                        "https://vendor/api",
+                        json=payload,
+                        headers={
+                            "Idempotency-Key": idempotency_key,
+                            **({"X-Request-ID": request_id} if request_id else {}),
+                        },
+                    )
+                    response.raise_for_status()
+                    result = response.json()
+                    log.info("vendor_success", status_code=response.status_code)
+                    return result
+            finally:
+                llm_sem.release()
         
-        except httpx.TimeoutException as e:
+        except AdmissionTimeout:
+            raise
+        except (httpx.TimeoutException, TimeoutError) as e:
             log.warning("vendor_timeout", error=str(e))
             
             if attempt < 2:

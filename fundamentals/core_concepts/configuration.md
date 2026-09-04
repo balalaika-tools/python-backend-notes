@@ -8,7 +8,7 @@
 
 > **Key insight**: Treat deployment strings as untrusted input at one typed startup boundary.
 
-This guide explains **how to manage configuration in Python backend applications** — from local development to production. Covers the 12-factor methodology, pydantic-settings, secrets management, and real-world patterns for FastAPI.
+This guide explains **how to manage configuration in Python backend applications** — from local development to production. It covers the 12-factor app methodology (a set of practices for deployable services), pydantic-settings, secrets management, and real-world patterns for FastAPI.
 
 > **Mental model**: deployment sources provide untrusted strings; one Settings
 > object parses and validates them at startup; the rest of the application
@@ -18,9 +18,11 @@ This guide explains **how to manage configuration in Python backend applications
 
 ## 1. The Core Principle: Config Belongs in the Environment
 
-The [12-factor app](https://12factor.net/config) methodology defines one rule for configuration:
+The [12-factor app](https://12factor.net/config) methodology defines one rule for configuration.
+Here, **environment** means the deployment-provided boundary outside the built artifact: environment
+variables, mounted files, or a secret/configuration service.
 
-> **Everything that changes between deploys (dev, staging, prod) must come from the environment — never from code.**
+> **Everything that changes between deploys (dev, staging, prod) must be supplied outside the code artifact.**
 
 This includes:
 
@@ -514,7 +516,13 @@ class Settings(BaseSettings):
 
 ## 8. Secrets Management
 
-### The Rule
+### Why the artifact is the wrong secret boundary
+
+A secret committed once remains in git history after the current file is cleaned. A secret copied
+into a Docker layer remains recoverable from the image even if a later layer deletes it. Environment
+variables may appear in process diagnostics and platform inspection APIs, while mounted files may be
+read by any process with sufficient filesystem permission. These exposure paths are why delivery and
+access controls belong to the deployment platform.
 
 > **Secrets must never exist in your codebase, your git history, or your Docker images.**
 
@@ -544,7 +552,8 @@ Environment variables are convenient but can appear in process diagnostics,
 crash reports, or platform inspection APIs. Mounted secret files reduce some of
 that exposure and can support rotation, but their permissions and lifecycle
 still need controls. Kubernetes Secret values are not made confidential merely
-by base64 encoding; configure encryption at rest and RBAC for the cluster.
+by base64 encoding; configure encryption at rest and role-based access control (RBAC), the policy
+that limits which cluster identities may read a Secret.
 
 #### Kubernetes Secrets as Environment Variables
 
@@ -879,6 +888,9 @@ def signup(settings: Settings = Depends(get_settings)):
 ```
 
 ### CORS Origins
+
+Cross-Origin Resource Sharing (CORS) is the browser policy that controls which web origins may call
+the API from scripts.
 
 ```python
 class Settings(BaseSettings):

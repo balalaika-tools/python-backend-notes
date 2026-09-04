@@ -1,5 +1,7 @@
 # Python Exceptions: Propagation, Recovery, and Translation
 
+<!-- length-justification: This canonical exception note keeps propagation, translation, cleanup, concurrent ExceptionGroup handling, and boundary testing together so each policy can be traced through one uninterrupted failure path. -->
+
 > **Who this is for**: Python developers who know `try` and `except` syntax but
 > are unsure where errors go, what to catch, or how application layers should
 > communicate failure. The examples target Python 3.11+.

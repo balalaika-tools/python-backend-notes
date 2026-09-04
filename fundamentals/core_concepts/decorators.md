@@ -1,5 +1,7 @@
 # Python Decorators: From Rebinding to Production Patterns
 
+<!-- length-justification: This canonical decorator note keeps the baseline rebinding model beside advanced descriptors and framework protocols because every later form is derived from, and debugged by expanding, that same transformation. -->
+
 > **Who this is for**: Python developers who can define and call functions but find
 > `@something` syntax mysterious. Read [typing.md](typing.md) first if
 > `Callable`, `TypeVar`, or `ParamSpec` are unfamiliar.

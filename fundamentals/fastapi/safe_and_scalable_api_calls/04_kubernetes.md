@@ -334,6 +334,11 @@ vendor_limiter = GlobalVendorRateLimiter(
 
 ### Usage with Local Protections
 
+The limiter above is intentionally non-atomic teaching code and must not back a copyable production
+path. In production, bind `vendor_limiter` to the atomic Lua-backed implementation in
+[Part 9: Distributed Admission Control](09_distributed_admission_control.md); the usage below assumes
+that implementation.
+
 ```python
 import asyncio
 import httpx

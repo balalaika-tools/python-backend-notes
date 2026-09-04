@@ -37,10 +37,17 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+# stderr: 2026-09-04 12:00:00,000 INFO __main__ application started
 ```
 
 `basicConfig()` attaches a `StreamHandler` to the root logger and uses
 `sys.stderr` unless `stream=` or `filename=` is supplied.
+
+The timestamp varies; `INFO __main__ application started` is the success signal. If nothing changes
+after `basicConfig()`, an earlier library or test runner probably attached a root handler, making the
+call a no-op. Inspect `logging.getLogger().handlers`; in an application-owned entry point, configure
+before imports that emit logs or deliberately use `force=True` after deciding to replace them.
 
 The call flows through four concepts:
 

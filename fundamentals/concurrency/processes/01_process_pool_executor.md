@@ -331,19 +331,24 @@ await loop.run_in_executor(pool, cpu_work_with_context, request_id, x)
 
 ## 11. Failure Modes and Observability
 
-- Creating a new process pool inside every request.
-- Passing a lambda or nested function.
+Start with four **gates**: importability/pickling, pool lifetime, payload size, and the distinction
+between stopping a wait and terminating work. The rest is the deeper operations pass.
+
+- **Creating a new process pool inside every request.**
+- **Passing a lambda or nested function.**
 - Passing a database session or HTTP client to a worker.
-- Sending huge objects when a path, ID, or blob reference would do.
+- **Sending huge objects when a path, ID, or blob reference would do.**
 - Using a process pool for tiny work where IPC dominates.
 - Depending on module globals that differ per worker process.
 - Forgetting that local semaphores and counters are per process, not global.
-- Assuming a future timeout stopped CPU work already running.
+- **Assuming a future timeout stopped CPU work already running.**
 - Constructing a pool during module import.
 - Ignoring `BrokenProcessPool` after a worker crashes or an initializer fails.
 - Force-terminating workers while they hold IPC locks or write non-idempotent output.
 
-Measure:
+Measure these first: **submission queue age, task/serialization time, worker CPU/memory, and timeout
+or forced-termination counts**. Add startup/recycle and end-to-end backlog measurements when worker
+lifecycle or upstream queues are part of the deployment.
 
 - Submission queue depth and age.
 - Task runtime and serialization time.

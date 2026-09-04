@@ -170,15 +170,25 @@ HTTPX configuration affects different phases:
 
 ### What Limits Concurrency?
 
-The **number of available sockets** in the pool.
+For HTTP/1.1, the **number of available connections** in the pool limits concurrent in-flight
+requests because one connection normally carries one active request. HTTP/2 can multiplex several
+request streams over one connection, so pool capacity and request concurrency become separate
+limits.
 
 ```python
 limits = httpx.Limits(max_connections=10)
 ```
 
-This means:
-- At most 10 TCP connections exist simultaneously
-- The 11th concurrent request **waits** for a socket
+This means at most 10 TCP connections exist simultaneously. With HTTP/1.1, an 11th concurrent
+request normally waits for a connection; with HTTP/2, it may use a new stream on an existing
+connection until the peer's stream limit or another application limit is reached.
+
+Check the negotiated protocol rather than assuming it:
+
+```python
+response = await client.get("https://example.com")
+print(response.http_version)  # "HTTP/1.1" or "HTTP/2"
+```
 
 ### What Happens When Pool Is Full?
 
@@ -230,8 +240,9 @@ The request waits until:
 
 **Key insight**:
 
-> Concurrency is limited at the **pool level**, not at the coroutine level.
-> 100 coroutines with a pool of 10 connections = max 10 concurrent network operations.
+> Pool limits cap **connections**, not coroutines. Under HTTP/1.1, 100 coroutines with 10
+> connections normally means at most 10 in-flight requests; under HTTP/2, multiple request streams
+> can share each connection, so use a separate application admission limit.
 
 ---
 

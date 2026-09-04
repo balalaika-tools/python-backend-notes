@@ -99,10 +99,10 @@ If the allowed total doubles, the counter is local rather than fleet-wide.
 
 ### What Gateway Does NOT Do
 
-❌ User-level fairness
-❌ Business rules (tenant quotas)
-❌ Vendor API protection
-❌ Application-level logic
+- User-level fairness
+- Business rules such as tenant quotas
+- Vendor API protection
+- Application-level policy
 
 > Gateway protects **infrastructure**, not business logic.
 
@@ -113,6 +113,12 @@ If the allowed total doubles, the counter is local rather than fleet-wide.
 ### Role
 
 Route traffic **only to healthy pods**.
+
+Readiness changes routing, so a dependency-wide failure must not automatically mark every pod
+unready: that can remove all backends and turn a partial downstream outage into total API
+unavailability. Use readiness for pod-local inability to accept traffic, and return endpoint-level
+failure or shed work when only one dependency is impaired. Liveness is narrower still; restarting a
+healthy-but-busy process destroys in-flight work without creating capacity.
 
 ### How It Works
 
@@ -188,6 +194,12 @@ uvicorn app:app \
 | `--limit-concurrency` | Max in-flight requests per worker |
 | `--backlog` | Queued connections before refusal |
 | `--timeout-keep-alive` | How long to keep idle connections open |
+
+These limits describe different queues. Worker concurrency bounds accepted request work, the HTTP
+pool bounds downstream connections, and the application semaphore bounds calls admitted to a
+specific dependency. Setting all three to the same number does not align them automatically: some
+requests never call that dependency, HTTP/2 can multiplex streams, and multiple workers multiply
+per-process limits. Size from measured active work and wait time at each boundary.
 
 ### Understanding `--timeout-keep-alive`
 
@@ -426,14 +438,14 @@ async with llm_sem:
 
 | Concern | Gateway | ASGI | FastAPI | Vendor Call |
 |---------|---------|------|---------|-------------|
-| Flood protection | ✅ | ❌ | ❌ | ❌ |
-| Total RPS ceiling | ✅ | ❌ | ❌ | ❌ |
-| Per-IP limits | ✅ | ❌ | ❌ | ❌ |
-| Pod admission | ❌ | ✅ | ❌ | ❌ |
-| Per-user fairness | ❌ | ❌ | ✅ (Redis) | ❌ |
-| Endpoint limits | ❌ | ❌ | ✅ | ❌ |
-| Local capacity | ❌ | ❌ | ✅ (sem) | ❌ |
-| Vendor quotas | ❌ | ❌ | ❌ | ✅ (Redis) |
+| Flood protection | Yes | No | No | No |
+| Total RPS ceiling | Yes | No | No | No |
+| Per-IP limits | Yes | No | No | No |
+| Pod admission | No | Yes | No | No |
+| Per-user fairness | No | No | Yes (Redis) | No |
+| Endpoint limits | No | No | Yes | No |
+| Local capacity | No | No | Yes (semaphore) | No |
+| Vendor quotas | No | No | No | Yes (Redis) |
 
 ---
 
@@ -479,7 +491,13 @@ metadata:
   name: fastapi-app
 spec:
   replicas: 10
+  selector:
+    matchLabels:
+      app: fastapi-app
   template:
+    metadata:
+      labels:
+        app: fastapi-app
     spec:
       containers:
       - name: app
@@ -536,17 +554,15 @@ async def call_llm_with_cleanup(payload: dict):
 
 ### What MUST Go Into Shielded Cleanup
 
-✅ Metrics recording
-✅ Tracing / observability
-✅ Releasing external resources
-✅ Final state persistence
+- Metrics and tracing already buffered locally
+- Releasing an external resource whose ownership is known
+- Final state persistence needed to preserve an invariant
 
 ### What Must NOT Go Into Shielded Cleanup
 
-❌ Retries
-❌ New vendor calls
-❌ Heavy computation
-❌ Anything slow or unbounded
+- Retries or new vendor calls
+- Heavy computation
+- Anything slow or unbounded
 
 ---
 
@@ -568,15 +584,10 @@ Each layer protects a different resource:
 
 ## Summary: Complete Architecture
 
-This architecture:
-
-✅ Survives floods and bursts
-✅ Enforces fairness
-✅ Respects vendor contracts
-✅ Prevents pod collapse
-✅ Works with Kubernetes autoscaling
-✅ Clear responsibilities
-✅ No redundant limits
+This architecture separates flood protection, pod admission, user fairness, and vendor contracts so
+each failure is observed at the boundary that owns it. That separation supports bursts and
+autoscaling without pretending one rate limit prevents pod collapse or one semaphore protects a
+fleet-wide quota.
 
 > **Rate limits control "how often".**
 > **Admission control decides "whether at all".**

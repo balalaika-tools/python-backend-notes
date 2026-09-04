@@ -29,10 +29,15 @@ The goal is not to memorize every API. The goal is to design systems that remain
 |------:|-------|---------------|
 | 1 | [00_decision_guide.md](00_decision_guide.md) | Choose async, threads, processes, subinterpreters, or job queues. |
 | 2 | [01_state_and_safety.md](01_state_and_safety.md) | Understand mutable objects, shared state, thread safety, async safety, and process boundaries. |
-| 3 | [02_alternative_runtimes.md](02_alternative_runtimes.md) | Evaluate Python 3.14 subinterpreters and optional free-threaded CPython without confusing them with default runtimes. |
-| 4 | [async/](async/README.md) | Event loops, coroutines, structured task ownership, admission control, timeouts, cancellation, queues, and `contextvars`. |
-| 5 | [threads/](threads/README.md) | `ThreadPoolExecutor`, thread primitives, synchronization patterns, blocking I/O, shared memory, and deadlocks. |
-| 6 | [processes/](processes/README.md) | `ProcessPoolExecutor`, pickling, process start methods, CPU parallelism, and process-safe sharing. |
+| 3 | [async/](async/README.md) | Event loops, coroutines, structured task ownership, admission control, timeouts, cancellation, queues, and `contextvars`. |
+| 4 | [threads/](threads/README.md) | `ThreadPoolExecutor`, thread primitives, synchronization patterns, blocking I/O, shared memory, and deadlocks. |
+| 5 | [processes/](processes/README.md) | `ProcessPoolExecutor`, pickling, process start methods, CPU parallelism, and process-safe sharing. |
+| 6 | [02_alternative_runtimes.md](02_alternative_runtimes.md) | After a default branch works, evaluate Python 3.14 subinterpreters and optional free-threaded CPython. |
+
+After the decision guide, go directly to the async, thread, or process branch it selects. Stop when
+that branch's first example produces its named result. Continue to state safety only when work
+shares mutable data or crosses scheduler boundaries, and evaluate alternative runtimes only when
+measured CPU or isolation needs justify a non-default runtime.
 
 ---
 

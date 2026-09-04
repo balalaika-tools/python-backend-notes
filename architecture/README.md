@@ -14,6 +14,7 @@ These guides assume familiarity with the fundamentals. They show how the pieces 
 
 | Topic | Description |
 |-------|-------------|
+| [Hexagonal Architecture](hexagonal_architecture/README.md) | An 11-part path from coupling pressure and one runnable vertical slice through ports, adapters, composition, APIs, workers, GenAI, testing, and migration |
 | [Long-Running Tasks](long_running_tasks/README.md) | Handling requests that take seconds to hours: orchestration, worker patterns, client delivery, infrastructure, sagas/outbox |
 
 <!-- Future topics:
@@ -21,6 +22,21 @@ These guides assume familiarity with the fundamentals. They show how the pieces 
 - CQRS — separating read and write models for scalability
 - Service-Level Resilience — service mesh, regional failover, cells, and blast-radius control
 -->
+
+---
+
+## Reading Order
+
+**Working result by entry 2**: run one business action through both API- and worker-shaped entry
+points, then explain why neither transport owns the action.
+
+1. **Do—diagnose the coupled route:** [Why Hexagonal Architecture](hexagonal_architecture/01_why_hexagonal_architecture.md) follows one AI endpoint, applies concrete change requests, and assigns the resulting responsibilities.
+2. **Do—build the separated result:** [Build one vertical slice](hexagonal_architecture/02_build_one_vertical_slice.md) and observe the same action produce results for two inbound adapters.
+3. **Understand, then harden:** trace the dependency rule and follow the [Hexagonal Architecture index](hexagonal_architecture/README.md) into contracts, lifecycle, process boundaries, AI, testing, or migration.
+
+**Stop here if** the runnable slice gives your service a stable, testable application boundary.
+Continue into [Long-Running Tasks](long_running_tasks/README.md) when work must outlive an HTTP
+request and needs durable lifecycle, delivery, or recovery mechanisms.
 
 ---
 

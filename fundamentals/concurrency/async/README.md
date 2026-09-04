@@ -46,6 +46,10 @@ Use async-native libraries on the hot path. Offload blocking work with `asyncio.
 2. **Production patterns** — add capacity bounds, time budgets, cancellation, and shutdown.
 3. **Context variables** — propagate small request metadata without creating hidden shared resources.
 
+**Milestone:** after entry 1, the concurrent example completes with all task results owned by its
+`TaskGroup`. Stop there for small bounded fan-out. Continue for unbounded inputs, graceful shutdown,
+or request metadata that must cross task and thread boundaries.
+
 ---
 
 ## Diagnostic Commands

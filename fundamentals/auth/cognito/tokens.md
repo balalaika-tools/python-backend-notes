@@ -71,11 +71,14 @@ Key differences from IdToken:
 - Has `scope` instead of user attributes
 - `client_id` is always present; `aud` is absent for plain app-client tokens, but **is** set to the resource-server identifier when the token is issued for a resource server (e.g. `api.myapp.com`)
 - `token_use` is `"access"`
-- No PII (email, name) — just authorization data
+- It is still a readable bearer credential and potentially sensitive: `username`, group affiliation,
+  and customized claims can be personally identifiable information (PII). Classify and redact it as
+  sensitive even when email/name are absent.
 
 **Which token should your API validate?**
 - Use **AccessToken** to authorize API calls — that's its purpose
-- Use **IdToken** only if your API needs user profile info (and you're not using a separate user lookup)
+- Obtain profile data through a trusted lookup or an explicitly isolated identity endpoint. Do not
+  let an ID token cross an API authorization boundary merely because it contains convenient fields.
 
 ### RefreshToken — "Get me new tokens"
 
@@ -291,6 +294,17 @@ response = apigw.create_authorizer(
     identitySource='method.request.header.Authorization',
 )
 
+# Bind an access-token scope to the protected method. Without authorizationScopes,
+# API Gateway can treat the token as identity authentication rather than scope authorization.
+apigw.put_method(
+    restApiId='your-api-id',
+    resourceId='your-resource-id',
+    httpMethod='GET',
+    authorizationType='COGNITO_USER_POOLS',
+    authorizerId=response['id'],
+    authorizationScopes=['myapi/read'],
+)
+
 # API Gateway will:
 # 1. Extract the token from the Authorization header
 # 2. Validate it against the User Pool
@@ -303,7 +317,8 @@ Lambda receives:
 def handler(event, context):
     claims = event['requestContext']['authorizer']['claims']
     user_sub = claims['sub']
-    email    = claims['email']
+    scopes   = set(claims.get('scope', '').split())
+    assert 'myapi/read' in scopes
     groups   = claims.get('cognito:groups', '').split(',')
 ```
 
@@ -364,7 +379,6 @@ cognito_client.update_user_pool_client(
 )
 # When enabled, refresh via GetTokensFromRefreshToken or the /oauth2/token endpoint —
 # REFRESH_TOKEN_AUTH on initiate_auth is not compatible with rotation.
-# Requires the Essentials or Plus pricing tier.
 ```
 
 ---

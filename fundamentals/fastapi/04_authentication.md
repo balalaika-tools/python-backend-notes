@@ -49,7 +49,12 @@ Two fundamentally different strategies for maintaining identity across requests.
 
 **Stateful** (Sessions): The server must look up session data on every request. More control, more infrastructure.
 
-> **For APIs, JWTs are the standard.** For traditional server-rendered apps, sessions still make sense. This guide focuses on token-based auth because that is what FastAPI APIs overwhelmingly use.
+Self-contained bearer tokens fit multi-service and non-browser clients because an API can validate
+them without a session lookup, but leakage remains effective until expiry and immediate revocation
+needs extra state. Opaque tokens centralize introspection and revocation; server-side sessions fit
+same-origin browser applications and can keep credentials in `HttpOnly` cookies. This guide focuses
+on token-based APIs, not because they are universally standard, but because their validation and
+authorization boundaries are the subject here.
 
 ---
 
@@ -61,28 +66,28 @@ If your database is breached and passwords are stored in plaintext, every user a
 
 **Hashing is one-way.** You can verify a password against a hash, but you cannot reverse the hash to get the password.
 
-### The Pattern: bcrypt
+### The default pattern: `pwdlib` with Argon2
 
-> **Library choice (2025+):** `passlib` is effectively unmaintained — its last release was 2020, and it breaks with `bcrypt>=4.1` (and outright fails on `bcrypt>=5`) due to a removed `__about__` version-detection attribute. For new code, prefer **`pwdlib`** (purpose-built FastAPI-era replacement, supports argon2 and bcrypt) or call **`bcrypt`** / **`argon2-cffi`** directly. The `passlib` example below is shown because you will still encounter it in existing codebases; if you use it, pin `bcrypt<4.1`. A direct-`bcrypt` version follows.
+FastAPI's current tutorial uses `pwdlib` with Argon2. Argon2 is a memory-hard password hashing
+algorithm, which raises the cost of large-scale guessing attacks.
 
 ```python
-from passlib.context import CryptContext
+from pwdlib import PasswordHash
 
-# NOTE: requires bcrypt<4.1 — passlib is unmaintained, see note above.
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+password_hash = PasswordHash.recommended()
 
 
 def hash_password(plain_password: str) -> str:
     """Hash a password for storage."""
-    return pwd_context.hash(plain_password)
+    return password_hash.hash(plain_password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against a stored hash."""
-    return pwd_context.verify(plain_password, hashed_password)
+    return password_hash.verify(plain_password, hashed_password)
 ```
 
-**Recommended for new code — direct `bcrypt`** (no `passlib` dependency):
+**Compatibility alternative — direct `bcrypt`** (for systems already storing bcrypt hashes):
 
 ```python
 import bcrypt
@@ -104,16 +109,16 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 ```python
 hashed = hash_password("my_secret_password")
-# "$2b$12$LJ3m4ys3Lg2yE1rkNqLiKe5GZWB5v1qh0VRlVaFHnPwK6zXmJbW6C"
+# "$argon2id$v=19$..." (salt and hash vary each run)
 
 verify_password("my_secret_password", hashed)   # True
 verify_password("wrong_password", hashed)        # False
 ```
 
 Key properties:
-- **Salt is automatic** -- bcrypt generates a random salt per hash
-- **Timing-safe comparison** -- both `passlib.verify` and `bcrypt.checkpw` compare in constant time
-- **Cost factor is configurable** -- `bcrypt.gensalt(rounds=12)` (or passlib's `deprecated="auto"` for algorithm upgrades)
+- **Salt is automatic** — the selected password hasher creates a fresh salt.
+- **Comparison belongs to the library** — `password_hash.verify()` performs the algorithm's verification path.
+- **Parameters can evolve** — `PasswordHash.recommended()` selects the current recommended scheme; store the encoded hash so its parameters travel with it.
 
 ### Common Mistakes
 
@@ -126,11 +131,11 @@ user.password = request.password
 # WRONG -- using MD5 or SHA256 (fast hashes, easily brute-forced)
 import hashlib
 user.password = hashlib.sha256(request.password.encode()).hexdigest()
-
-# WRONG -- comparing hashes directly (timing attack vulnerable)
-if stored_hash == pwd_context.hash(plain_password):
-    ...
 ```
+
+An attacker can measure tiny differences in an ordinary secret comparison and use repeated probes
+to infer matching prefixes. Do not write an executable equality comparison for password-derived
+secrets; call the password library's verifier, which owns the correct algorithm and comparison.
 
 **Do this:**
 
@@ -625,6 +630,9 @@ API keys are simpler but less flexible. They identify a **client**, not a **user
 ### Header-Based API Key Dependency
 
 ```python
+import hashlib
+import secrets
+
 from fastapi import Security
 from fastapi.security import APIKeyHeader
 
@@ -632,13 +640,17 @@ API_KEY_HEADER = APIKeyHeader(name="X-API-Key")
 
 
 def get_api_key(api_key: str = Security(API_KEY_HEADER)) -> str:
-    valid_keys = get_valid_api_keys()  # from DB or config
-    if api_key not in valid_keys:
+    key_id, separator, secret_value = api_key.partition(".")
+    record = get_api_key_record(key_id) if separator else None
+    candidate_digest = hashlib.sha256(secret_value.encode()).digest()
+
+    # The public key ID bounds the lookup; only fixed-size digests are compared.
+    if record is None or not secrets.compare_digest(candidate_digest, record.secret_digest):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid API key",
         )
-    return api_key
+    return key_id
 
 
 @app.get("/external/data")

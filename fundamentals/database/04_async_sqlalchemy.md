@@ -12,13 +12,74 @@
 
 ---
 
+## Quick start: prove engine, schema, session, and transaction wiring
+
+Install `sqlalchemy[asyncio]` and `aiosqlite` (the extra ensures the async bridge dependency is
+present), then run this self-contained baseline:
+
+```bash
+pip install 'sqlalchemy[asyncio]' aiosqlite
+```
+
+```python
+import asyncio
+from sqlalchemy import String, select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class User(Base):
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String, unique=True)
+
+
+async def main() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    Session = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    async with Session.begin() as session:
+        session.add(User(email="alice@example.com"))
+
+    async with Session() as session:
+        user = await session.scalar(select(User))
+        print(user.id, user.email)
+
+    await engine.dispose()
+
+
+asyncio.run(main())
+# 1 alice@example.com
+```
+
+The connection creates the registered schema, each session owns one unit of work, and the second
+session proves the committed row is readable. `ModuleNotFoundError: aiosqlite` identifies a missing
+driver; `no such table: users` means schema creation or model registration did not run.
+
+> **Production:** PostgreSQL driver selection, pool ownership, explicit relationship loading, and
+> migrations come after this wiring baseline; SQLite is only the bounded carrier here.
+
+---
+
 ## 1. Mental Model
 
 ### Sync vs Async — The Fundamental Difference
 
-In sync SQLAlchemy, the ORM does invisible I/O constantly. Access `user.posts` and it silently hits the database. This works because the thread blocks until the query returns.
+Both sync and async `Session` objects are explicit, mutable transaction owners and must not be shared
+across concurrent work. Sync SQLAlchemy *can* perform implicit I/O on lazy attribute access: access
+`user.posts` and the current thread may block while SQL runs.
 
-In async SQLAlchemy, **every database access must be explicit**. The event loop cannot be blocked by invisible I/O. If you try, you get `MissingGreenlet` or `DetachedInstanceError`.
+In async SQLAlchemy, **every database access must be explicit**. Ordinary lazy access commonly raises
+`MissingGreenlet` (or `DetachedInstanceError` after detachment). Prefer eager loading or
+`lazy="raise"`; deliberate alternatives include `AsyncAttrs.awaitable_attrs` and
+`AsyncSession.refresh(obj, ["relationship_name"])`.
 
 ```
 Sync:   user.posts  →  (hidden SQL query)  →  list of posts
@@ -29,8 +90,8 @@ Async:  user.posts  →  MissingGreenlet error (cannot do implicit I/O)
 
 | Concern | Sync SQLAlchemy | Async SQLAlchemy |
 |---------|----------------|------------------|
-| Lazy loading | Works transparently | Raises exceptions |
-| Session scope | Thread-local, implicit | Explicit, must be passed |
+| Lazy loading | May issue blocking SQL | Prefer eager/raise; explicit awaitable access is available |
+| Session scope | Explicit mutable unit of work | Explicit mutable unit of work; one per task |
 | Relationship access | Automatic SQL on attribute access | Must use `selectinload` / `joinedload` |
 | Connection management | Thread pool handles it | Event loop — one connection blocks all if misused |
 | Engine | `create_engine` | `create_async_engine` — wraps an async driver |
@@ -562,10 +623,13 @@ from sqlalchemy.exc import DBAPIError
 RETRYABLE_TRANSACTION_SQLSTATES = {"40P01", "40001"}
 
 
-async def with_transaction_retry(fn, *, max_attempts=3):
+async def with_transaction_retry(session_factory, operation, *, max_attempts=3):
     for attempt in range(max_attempts):
         try:
-            return await fn()
+            # Each attempt gets a fresh session and transaction, so rollback/close
+            # cannot leak failed state into the next decision.
+            async with session_factory.begin() as session:
+                return await operation(session)
         except DBAPIError as e:
             sqlstate = getattr(e.orig, "sqlstate", None) or getattr(e.orig, "pgcode", None)
             if sqlstate in RETRYABLE_TRANSACTION_SQLSTATES and attempt < max_attempts - 1:
@@ -573,6 +637,18 @@ async def with_transaction_retry(fn, *, max_attempts=3):
                 continue
             raise
 ```
+
+The observable state transition should be tested at the operation boundary:
+
+| Attempt | SQLSTATE from operation | Session outcome | Retry result |
+|---------|-------------------------|-----------------|--------------|
+| 1 | `40001` serialization failure | Context manager rolls back and closes | Sleep, then create a fresh attempt |
+| 2 | none | Fresh transaction commits | Return result |
+| 1 | `23505` unique violation | Context manager rolls back and closes | Re-raise immediately; no retry |
+
+An integration test should inject each SQLSTATE and assert two session creations for the first case
+and one for the non-retryable case. If attempt two sees “transaction is aborted,” the implementation
+reused failed transaction state instead of creating a fresh scope.
 
 `40001` (`serialization_failure`) is most common at `REPEATABLE READ` or `SERIALIZABLE`, but it can also appear when the database prevents anomalies that your transaction shape made possible. Retry the **whole transaction**, including the read/decision logic that chose what to write. Retrying only the final SQL statement can repeat the stale decision and fail again.
 
@@ -1022,7 +1098,7 @@ asyncpg is the async PostgreSQL driver that SQLAlchemy uses under the hood. You 
 
 | Concern | Raw asyncpg | SQLAlchemy async |
 |---------|-------------|------------------|
-| Performance | Fastest possible — no ORM overhead | ~10-30% slower (identity map, event hooks, type coercion) |
+| Performance | Avoids ORM identity/mapping work | Adds identity map, event hooks, and type coercion; measure the query path |
 | Query building | Raw SQL strings | Python expressions (`select`, `where`, `join`) |
 | Migrations | Manual or separate tool | Alembic integration |
 | Relationships | Manual JOINs | `selectinload`, `joinedload` |
@@ -1156,14 +1232,11 @@ async with pool.acquire() as conn:
     )
 ```
 
-`copy_records_to_table` uses PostgreSQL's binary COPY protocol, which is **dramatically** faster than individual INSERTs:
-
-| Method | 10,000 rows | 100,000 rows |
-|--------|-------------|--------------|
-| Individual INSERTs | ~5-10s | ~50-100s |
-| `executemany` | ~1-2s | ~10-20s |
-| `copy_records_to_table` | ~0.05s | ~0.3s |
-| SQLAlchemy `insert().values()` | ~0.1-0.3s | ~1-3s |
+`copy_records_to_table` uses PostgreSQL's binary COPY protocol and reduces round trips. Benchmark it
+against individual inserts, `executemany`, and SQLAlchemy bulk inserts using the same row width,
+constraints/indexes, transaction size, client/server versions, network placement, and server
+resources. Record rows per second and repeated-run tail time; choose raw asyncpg only when that
+measurement justifies a separate hot path.
 
 ### Using Both Together
 

@@ -200,13 +200,17 @@ Do not size a pool from host CPU count alone in containers. `os.process_cpu_coun
 
 ## 9. Final Design Checklist
 
-- Is the bottleneck waiting, Python computation, native computation, or durability?
+Answer the four **gates** first: the blocking boundary, bounds on active and waiting work, whether
+started work can really be cancelled, and who owns shared state. Use the rest during production
+review.
+
+- **Gate — is the bottleneck waiting, Python computation, native computation, or durability?**
 - Are required libraries async-compatible, thread-safe, process-safe, and interpreter-safe?
-- What bounds active work and waiting work?
+- **Gate — what bounds active work and waiting work?**
 - Do timeouts include time spent waiting for capacity?
-- Can started work be stopped, or only abandoned?
+- **Gate — can started work be stopped, or only abandoned?**
 - What happens to exceptions from every task or future?
-- Is mutable state private, synchronized, transactionally protected, or externalized?
+- **Gate — is mutable state private, synchronized, transactionally protected, or externalized?**
 - Does every pool/client have one clear lifecycle and shutdown owner?
 - Does the design still work with multiple workers and pods?
 - Have latency, throughput, memory, and failure behavior been measured under realistic load?

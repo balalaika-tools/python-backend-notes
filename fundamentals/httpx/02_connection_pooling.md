@@ -35,7 +35,10 @@ httpx.Limits(max_connections=100)
 
 - Total sockets across all hosts
 - Includes **active + idle** sockets
-- Hard ceiling on network concurrency
+- A hard ceiling on connections; under HTTP/1.1 this usually also caps in-flight requests
+
+HTTP/2 multiplexes request streams over a connection. Therefore `max_connections` is not an
+application-wide concurrency limiter when HTTP/2 is negotiated; bound application work separately.
 
 ### When Limit Is Reached
 
@@ -119,7 +122,7 @@ await client.get(...)  # enters pool queue
 The `pool` timeout controls how long this wait is allowed:
 
 ```python
-timeout = httpx.Timeout(pool=5.0)
+timeout = httpx.Timeout(30.0, pool=5.0)
 ```
 
 ### What Happens
@@ -132,9 +135,8 @@ timeout = httpx.Timeout(pool=5.0)
 ### Common Mistake
 
 ```python
-# WRONG: No pool timeout
-timeout = httpx.Timeout(connect=5.0, read=30.0)
-# pool defaults to 5.0, but explicit is better
+# Correct: supply a default, then override every phase that differs
+timeout = httpx.Timeout(30.0, connect=5.0, pool=5.0)
 ```
 
 Always set `pool` timeout explicitly in production.
@@ -337,16 +339,21 @@ client = httpx.AsyncClient()  # pool timeout = 5.0 (default)
 
 ## Summary
 
-| Setting | Purpose | Typical range |
-|---------|---------|---------------|
-| `max_connections` | Peak concurrent sockets | 20-100 |
-| `max_keepalive_connections` | Idle sockets retained | 10-30 |
-| `pool` timeout | Max wait for socket | 3-10s |
+Size the pool from evidence rather than a universal range: start below the upstream's connection
+quota, run representative concurrency, and inspect pool-wait latency, open connections, upstream
+rejections, and end-to-end tail latency. Increase the pool only while pool wait dominates and the
+upstream still has capacity; reduce it when open connections rise without improving tail latency.
+
+| Setting | Purpose | Validation target |
+|---------|---------|-------------------|
+| `max_connections` | Peak concurrent connections | Pool wait stays within budget without exceeding the upstream quota |
+| `max_keepalive_connections` | Idle connections retained | Handshake rate falls without accumulating unnecessary idle sockets |
+| `pool` timeout | Maximum connection wait | Overload fails within the caller's queue budget |
 
 **Key principle**:
 
-> Pool limits bound **network concurrency** at the socket level.
-> They do not limit application concurrency.
+> Pool limits bound **connections**. They approximate request concurrency for HTTP/1.1, but HTTP/2
+> stream concurrency still needs an application admission limit.
 
 ---
 

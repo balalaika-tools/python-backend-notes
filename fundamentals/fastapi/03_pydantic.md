@@ -41,6 +41,37 @@ attribute assignment; never treat `model_construct()` as validated input.
 | A schema generator | A runtime type enforcer |
 | Optional decoration | Your first line of defense against bad data |
 
+### Choose the carrier before adding validators
+
+The same `quantity: int` annotation has different runtime meaning across adjacent model types:
+
+```python
+import dataclasses
+from pydantic import BaseModel
+from pydantic.dataclasses import dataclass as pydantic_dataclass
+
+@dataclasses.dataclass
+class InternalLine:
+    quantity: int
+
+@pydantic_dataclass
+class ValidatedLine:
+    quantity: int
+
+class BoundaryLine(BaseModel):
+    quantity: int
+
+print(type(InternalLine("3").quantity).__name__)    # str: generated methods, no validation
+print(type(ValidatedLine("3").quantity).__name__)  # int: construction validation
+print(BoundaryLine(quantity="3").model_dump())      # {'quantity': 3}: model APIs too
+```
+
+Choose standard dataclasses for trusted internal values, Pydantic dataclasses for
+dataclass-compatible construction validation, and `BaseModel` when validators, configuration,
+serialization, and JSON Schema belong to the boundary. Assignment is not revalidated by default;
+Pydantic dataclasses use `TypeAdapter` for schema/serialization APIs. The full decision and failure
+boundaries are in [Dataclass, Pydantic Dataclass, or BaseModel?](../core_concepts/data_model_choices.md).
+
 ---
 
 ## 2. BaseModel Basics
@@ -1116,12 +1147,25 @@ class Good(BaseModel):
 ### Mistake 4: Mutating Model Instances
 
 ```python
+class MutableUser(BaseModel):
+    name: str
+    age: int = Field(ge=0)
+
+
 # ❌ WRONG — bypasses validation
-user = User(name="Alice", age=30)
+user = MutableUser(name="Alice", age=30)
 user.age = -5  # no validation runs!
 
-# ✅ CORRECT — use model_copy for validated updates
-user = user.model_copy(update={"age": 25})
+# ❌ ALSO UNVALIDATED — model_copy trusts the update payload
+user = user.model_copy(update={"age": -5})
+
+# ✅ CORRECT — reconstruct through the normal validation boundary
+user = MutableUser.model_validate({**user.model_dump(), "age": 25})
+
+try:
+    MutableUser.model_validate({**user.model_dump(), "age": -5})
+except ValidationError as exc:
+    print(exc.errors()[0]["type"])  # greater_than_equal
 
 # Or make the model frozen (immutable)
 class User(BaseModel):
@@ -1208,7 +1252,7 @@ def create_user(data: UserCreate):
 | `Model.model_validate_json(json_str)` | Model instance | Create from JSON string |
 | `model.model_dump()` | dict | Serialize to dictionary |
 | `model.model_dump_json()` | str | Serialize to JSON string |
-| `model.model_copy(update={...})` | Model instance | Clone with modifications |
+| `model.model_copy(update={...})` | Model instance | Clone with trusted modifications; update data is not validated |
 | `model.model_fields_set` | set[str] | Fields explicitly provided by caller |
 | `Model.model_json_schema()` | dict | Generate JSON Schema |
 

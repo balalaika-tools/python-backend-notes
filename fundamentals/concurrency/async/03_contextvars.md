@@ -181,14 +181,17 @@ Use explicit parameters and separate sessions/transactions when operations truly
 
 ## 5. Propagation Across Boundaries
 
+The **bold rows** form the normal path: same-task awaits, task creation, `to_thread`, and explicit
+message propagation across processes. Raw threads and custom executors are conditional cases.
+
 | Boundary | What happens | What to do |
 |----------|--------------|------------|
-| Normal function call or `await` in one task | Same current context | Nothing special |
-| `asyncio.create_task()` / `TaskGroup.create_task()` | Shallow context copy at creation | Set metadata before creating the task |
-| `asyncio.to_thread()` | Current context is propagated to the worker call | Preferred async-to-thread bridge |
+| **Normal function call or `await` in one task** | Same current context | Nothing special |
+| **`asyncio.create_task()` / `TaskGroup.create_task()`** | Shallow context copy at creation | Set metadata before creating the task |
+| **`asyncio.to_thread()`** | Current context is propagated to the worker call | Preferred async-to-thread bridge |
 | `loop.run_in_executor()` | Do not rely on automatic propagation | Wrap a fresh `copy_context().run` |
 | Raw `threading.Thread` | Defaults vary by Python build and flags in 3.14+ | Pass/copy context explicitly |
-| Process pool, subprocess, broker worker | No useful automatic propagation | Serialize the required values |
+| **Process pool, subprocess, broker worker** | No useful automatic propagation | Serialize the required values |
 
 `asyncio.to_thread()` is the simplest thread bridge:
 
@@ -348,13 +351,16 @@ Using `current_user_var.get()` deep inside domain code hides authorization depen
 
 ## 9. Failure Modes and Tests
 
+Check the **bold rows** first; they cover the normal task/thread/process path. The remaining rows
+matter when mutable values or resource objects have been placed in context.
+
 | Failure | Why it happens | Fix |
 |---------|----------------|-----|
-| Request metadata leaks into later work | Boundary set a value without resetting it | Reset the returned token in `finally` |
+| **Request metadata leaks into later work** | Boundary set a value without resetting it | Reset the returned token in `finally` |
 | Child sees an older value | Task was created before the parent changed the binding | Set values before task creation |
 | Two tasks mutate the same value | The copied binding points to one mutable object | Store immutable metadata |
-| Executor logs have no request ID | `run_in_executor()` did not propagate context | Submit `copy_context().run` |
-| Process worker has no trace fields | Process boundaries do not copy context | Put allowlisted fields in the message |
+| **Executor logs have no request ID** | `run_in_executor()` did not propagate context | Submit `copy_context().run` |
+| **Process worker has no trace fields** | Process boundaries do not copy context | Put allowlisted fields in the message |
 | Background work uses a closed session | Context copied the object, not its lifetime | Pass IDs and acquire a fresh resource |
 
 Keep test bindings scoped:

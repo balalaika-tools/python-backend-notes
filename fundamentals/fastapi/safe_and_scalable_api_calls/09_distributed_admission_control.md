@@ -215,21 +215,18 @@ end
 
 local window = tonumber(ARGV[5])
 
-local g = redis.call("INCR", KEYS[3])
-if g == 1 then redis.call("EXPIRE", KEYS[3], window) end
-if g > tonumber(ARGV[1]) then
+local g = tonumber(redis.call("GET", KEYS[3]) or "0")
+if g >= tonumber(ARGV[1]) then
   return {0, "global_rpm", redis.call("TTL", KEYS[3])}
 end
 
-local u = redis.call("INCR", KEYS[4])
-if u == 1 then redis.call("EXPIRE", KEYS[4], window) end
-if u > tonumber(ARGV[2]) then
+local u = tonumber(redis.call("GET", KEYS[4]) or "0")
+if u >= tonumber(ARGV[2]) then
   return {0, "user_rpm", redis.call("TTL", KEYS[4])}
 end
 
-local p = redis.call("INCR", KEYS[6])
-if p == 1 then redis.call("EXPIRE", KEYS[6], window) end
-if p > tonumber(ARGV[4]) then
+local p = tonumber(redis.call("GET", KEYS[6]) or "0")
+if p >= tonumber(ARGV[4]) then
   return {0, "provider_rpm", redis.call("TTL", KEYS[6])}
 end
 
@@ -244,6 +241,15 @@ local i = redis.call("ZCARD", KEYS[5])
 if i >= tonumber(ARGV[3]) then
   return {0, "user_inflight", 1}
 end
+
+-- Redis executes the script atomically, so after every check passes these
+-- increments commit together; a rejection above leaves every counter unchanged.
+local new_g = redis.call("INCR", KEYS[3])
+if new_g == 1 then redis.call("EXPIRE", KEYS[3], window) end
+local new_u = redis.call("INCR", KEYS[4])
+if new_u == 1 then redis.call("EXPIRE", KEYS[4], window) end
+local new_p = redis.call("INCR", KEYS[6])
+if new_p == 1 then redis.call("EXPIRE", KEYS[6], window) end
 redis.call("ZADD", KEYS[5], now + lease, ARGV[7])
 -- Safety net: if every member somehow leaves, the key still self-expires.
 redis.call("EXPIRE", KEYS[5], lease + window)
@@ -515,9 +521,10 @@ async def chat(request: ChatRequest, user=Depends(auth)):
             # 4. RECONCILE — exactly once.
             # If we reserved more than used, refund the difference.
             # If less (rare — estimate too low), we already charged the right keys.
-            # If failed, refund the full reservation.
+            # If usage is unknown after failure, keep the reservation: the provider
+            # may already have billed tokens before the response was lost.
             if not succeeded:
-                await redis.decrby(f"user:{user.id}:tpd:{today()}", estimated_tokens)
+                await record_unknown_usage(user.id, estimated_tokens)
             else:
                 diff = estimated_tokens - actual_tokens
                 if diff != 0:

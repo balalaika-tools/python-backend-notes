@@ -205,20 +205,29 @@ class PodAwareCircuitBreaker:
     async def allow(self) -> None:
         """Raises CircuitBreakerOpen if breaker is open."""
         state = await self._get_state()
-        
+
         if state == "open":
             opened_at = await self.redis.get(f"{self.key_prefix}:opened_at")
             if opened_at:
                 elapsed = time.time() - float(opened_at)
                 if elapsed > self.timeout:
-                    # Enter half-open with a fresh success counter, otherwise
-                    # stale successes from a prior recovery cycle could close
-                    # the breaker before success_threshold fresh probes succeed.
+                    # SET NX elects one probe across all pods. Everyone else fails closed.
+                    elected = await self.redis.set(
+                        f"{self.key_prefix}:probe", "1", nx=True, ex=self.timeout
+                    )
+                    if not elected:
+                        raise CircuitBreakerOpen()
                     await self.redis.set(f"{self.key_prefix}:successes", 0)
                     await self._set_state("half_open")
                 else:
                     raise CircuitBreakerOpen()
             else:
+                raise CircuitBreakerOpen()
+        elif state == "half_open":
+            elected = await self.redis.set(
+                f"{self.key_prefix}:probe", "1", nx=True, ex=self.timeout
+            )
+            if not elected:
                 raise CircuitBreakerOpen()
     
     async def is_open(self) -> bool:
@@ -230,6 +239,7 @@ class PodAwareCircuitBreaker:
         
         if state == "half_open":
             successes = await self.redis.incr(f"{self.key_prefix}:successes")
+            await self.redis.delete(f"{self.key_prefix}:probe")
             if successes >= self.success_threshold:
                 await self._set_state("closed")
                 await self.redis.set(f"{self.key_prefix}:failures", 0)
@@ -240,6 +250,7 @@ class PodAwareCircuitBreaker:
         state = await self._get_state()
         
         if state == "half_open":
+            await self.redis.delete(f"{self.key_prefix}:probe")
             await self._set_state("open")
             await self.redis.set(f"{self.key_prefix}:opened_at", time.time())
         elif state == "closed":

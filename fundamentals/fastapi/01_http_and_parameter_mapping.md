@@ -12,6 +12,42 @@ For protocol-neutral HTTP semantics, resource design, caching, compatibility, an
 
 ---
 
+## Trace one request into one signature
+
+Start with the mapping before the method and status-code reference:
+
+```http
+POST /users/42/items?notify=true HTTP/1.1
+X-Request-ID: req-7
+Content-Type: application/json
+
+{"name":"keyboard"}
+```
+
+Explanatory excerpt; application/import setup is omitted:
+
+```python
+class ItemIn(BaseModel):
+    name: str
+
+@app.post("/users/{user_id}/items")
+def create_item(
+    user_id: int,
+    item: ItemIn,
+    notify: bool = False,
+    x_request_id: Annotated[str, Header()],
+):
+    return {"user_id": user_id, "name": item.name, "notify": notify,
+            "request_id": x_request_id}
+```
+
+FastAPI maps `42` from the path to `user_id`, `true` from the query string to `notify`, the JSON
+object to `item`, and the hyphenated header to `x_request_id`. The response is
+`{"user_id":42,"name":"keyboard","notify":true,"request_id":"req-7"}`. A missing required header
+or non-integer path value produces `422` before the function runs.
+
+---
+
 ## Part 0: Endpoint Structure & Conventions
 
 ### HTTP Method Semantics
@@ -363,7 +399,11 @@ async def create_order_from_xml(request: Request):
     return {"item_id": item_id, "quantity": quantity}
 ```
 
-`xml.etree.ElementTree` resolves external entities by default in some Python versions and third-party XML libraries — an XXE injection risk if the body comes from an untrusted client. Prefer `defusedxml` over raw `ElementTree`/`lxml` for any XML you didn't generate yourself.
+Python's documented `xml.etree.ElementTree` implementation does not expand external entities, so
+this exact parser is not an XML external entity (XXE) path. Untrusted XML can still consume
+excessive CPU or memory, and other libraries or parser configurations have different entity
+behavior. Bound body size and parsing resources; use `defusedxml` when you want a hardened,
+library-independent boundary for XML you did not generate.
 
 #### `application/x-protobuf` / gRPC — binary structured data
 

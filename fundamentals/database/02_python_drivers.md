@@ -47,15 +47,25 @@ Use sync psycopg3 for scripts, CLIs, background jobs, or anywhere you're not in 
 #### Connecting and Executing
 
 ```python
+import os
 import psycopg
 
-# Single connection — use as context manager (auto-closes)
-with psycopg.connect("postgresql://user:pass@localhost:5432/mydb") as conn:
+# DATABASE_URL points to a disposable PostgreSQL database for this exercise.
+with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
     with conn.cursor() as cur:
+        cur.execute("CREATE TEMP TABLE users (id int PRIMARY KEY, email text, name text)")
+        cur.execute(
+            "INSERT INTO users VALUES (%s, %s, %s)",
+            (1, "alice@example.com", "Alice"),
+        )
         cur.execute("SELECT id, email, name FROM users WHERE id = %s", (1,))
         row = cur.fetchone()
         print(row)  # (1, 'alice@example.com', 'Alice')
 ```
+
+The temporary table disappears with the connection. The visible tuple proves connection,
+parameter binding, transaction, and row decoding; a missing or bad
+`DATABASE_URL` fails before any permanent schema is changed.
 
 #### Parameters
 
@@ -199,7 +209,9 @@ with conn.cursor() as cur:
 conn.commit()
 ```
 
-`COPY` is 10-100x faster than `executemany` for large datasets.
+`COPY` reduces protocol round trips and per-statement overhead, so it is often materially faster than
+`executemany` for large batches. Measure with your row width, constraints, indexes, transaction size,
+network placement, server, and driver versions; no fixed multiplier transfers across workloads.
 
 #### Connection Pool (sync)
 
@@ -401,7 +413,7 @@ the only runnable form so attacker-controlled text remains a value rather than b
 # Multiple rows
 users = await pool.fetch("SELECT id, email FROM users ORDER BY id LIMIT 100")
 for user in users:
-    print(user["id"], user["email"])  # asyncpg.Record supports attribute access
+    print(user["id"], user["email"])  # key access; stock Record has no row.email notation
 
 # Single row
 user = await pool.fetchrow("SELECT * FROM users WHERE id = $1", user_id)
@@ -533,13 +545,10 @@ async with pool.acquire() as conn:
     )
 ```
 
-Performance comparison for 100,000 rows:
-
-| Method | Time (approx) |
-|--------|--------------|
-| Individual `await pool.execute(INSERT ...)` in loop | ~100s |
-| `executemany` | ~10-20s |
-| `copy_records_to_table` | ~0.3s |
+Benchmark all three methods against the same disposable table and transaction boundary, recording
+row count/width, constraints and indexes, client/server versions, network placement, and server
+resources. Report rows per second and p95 run time across repeated trials. The stable expectation is
+that binary `COPY` avoids many round trips; the actual wall-clock gap is environment-specific.
 
 ### 2.8 asyncpg-Specific Features
 
@@ -648,4 +657,12 @@ except asyncpg.PostgresError as e:
 | Extremely performance-sensitive read endpoints | Raw asyncpg |
 | You need maximum control over SQL | Raw driver |
 
-> You don't have to choose one. In a SQLAlchemy app, you can drop to raw asyncpg for specific hot paths: `raw_conn = await session.connection(); asyncpg_conn = await raw_conn.get_raw_connection()`.
+> You don't have to choose one. In a SQLAlchemy app, unwrap the driver connection only inside the
+> owning SQLAlchemy connection/transaction scope:
+>
+> ```python
+> async with engine.begin() as async_connection:
+>     adapter = await async_connection.get_raw_connection()
+>     asyncpg_connection = adapter.driver_connection
+>     # Driver-only calls belong here; SQLAlchemy still owns commit/rollback and close.
+> ```

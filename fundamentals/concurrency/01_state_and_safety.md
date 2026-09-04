@@ -47,26 +47,30 @@ A container can protect its internal memory and still be unsafe for a check-then
 
 ## 3. State-Sharing Matrix
 
+For a first pass, focus on the **bold rows**: private immutable data, module configuration,
+`ContextVar`, scheduler-matched locks/queues, and external state. Shared memory and manager proxies
+are specialist mechanisms to evaluate only after those defaults do not fit.
+
 | State location or object | Mutable? | Shared across async tasks? | Shared across threads? | Shared across processes? | Safe by default? | What to do |
 |--------------------------|----------|----------------------------|------------------------|--------------------------|------------------|------------|
-| Local immutable value (`int`, `str`) | No | Only if passed/stored elsewhere | Only if passed/stored elsewhere | Copied or serialized | Usually yes | Prefer these for request data. |
+| **Local immutable value (`int`, `str`)** | No | Only if passed/stored elsewhere | Only if passed/stored elsewhere | Copied or serialized | Usually yes | Prefer these for request data. |
 | Local mutable value (`list`, `dict`) | Yes | No, unless passed to another task | No, unless passed to another thread | No, unless sent/shared | Safe only while private | Do not hand it to concurrent workers unless ownership is clear. |
-| Module global immutable config | No | Yes, one per process | Yes, one per process | No, each process has its own copy | Usually yes | Good for read-only settings. |
+| **Module global immutable config** | No | Yes, one per process | Yes, one per process | No, each process has its own copy | Usually yes | Good for read-only settings. |
 | Module global mutable object | Yes | Yes | Yes | No, except inherited/copy-on-write details | No | Avoid, or protect with the right lock/queue. |
 | Class variable mutable object | Yes | Yes if class is shared | Yes if class is shared | No by default | No | Avoid mutable class-level defaults. |
 | Instance attribute | Often | If same instance is shared | If same instance is shared | No by default | Depends | Treat a shared instance like shared mutable state. |
 | Mutable default argument | Yes | Yes through the function object | Yes through the function object | Per process | No | Use `None` then create a new object inside. |
 | Closure over mutable object | Yes | Yes if function is shared | Yes if function is shared | Per process | No | Same risk as a global, just hidden. |
 | `threading.local()` | Yes | Broken for async tasks on same thread | Isolated per thread | No | Thread-only | Use for thread-local data, not request state in async servers. |
-| `contextvars.ContextVar` | The value can be mutable | Binding is isolated by context/task | Propagation depends on API and runtime settings | No | Good for request metadata | Store small immutable IDs; a copied binding may still point to one mutable object. |
-| `asyncio.Lock`, `Semaphore`, `Queue` | Internal state | Yes, within one event loop | Not thread-safe | No | Async-safe only | Use among tasks on the same event loop. |
-| `threading.Lock`, `RLock`, `Event` | Internal state | Blocks event loop if used directly | Yes | No | Thread-safe | Use in threaded sync code; avoid holding across `await`. |
+| **`contextvars.ContextVar`** | The value can be mutable | Binding is isolated by context/task | Propagation depends on API and runtime settings | No | Good for request metadata | Store small immutable IDs; a copied binding may still point to one mutable object. |
+| **`asyncio.Lock`, `Semaphore`, `Queue`** | Internal state | Yes, within one event loop | Not thread-safe | No | Async-safe only | Use among tasks on the same event loop. |
+| **`threading.Lock`, `RLock`, `Event`** | Internal state | Blocks event loop if used directly | Yes | No | Thread-safe | Use in threaded sync code; avoid holding across `await`. |
 | `queue.Queue` | Yes | Blocks event loop if used directly | Yes | No | Thread-safe | Use between threads. Use `asyncio.Queue` between tasks. |
 | `multiprocessing.Queue` | Yes | Not an async primitive | Usable, but process-oriented | Yes | Process-safe IPC | Use between processes; consider backpressure. |
 | `multiprocessing.Value` / `Array` | Yes | Not async-oriented | Can be used with care | Yes | Only with synchronization | Use the lock or provide your own. |
 | `multiprocessing.Manager()` proxies | Yes | Not async-oriented | Can be used with care | Yes | Safer but slower | Good for simple coordination, not hot paths. |
 | `multiprocessing.shared_memory` | Yes | Not async-oriented | Can be used with care | Yes | No | Design your own synchronization and layout. |
-| Redis/database/object storage | Yes | Yes via clients | Yes via clients | Yes | Depends on operation | Use atomic operations, transactions, or locks. |
+| **Redis/database/object storage** | Yes | Yes via clients | Yes via clients | Yes | Depends on operation | Use atomic operations, transactions, or locks. |
 
 ---
 

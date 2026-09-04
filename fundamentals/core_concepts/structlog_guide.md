@@ -1,5 +1,7 @@
 # Structured Logging with structlog
 
+<!-- length-justification: This canonical structured-logging implementation keeps the processor model, unified stdlib configuration, FastAPI request context, operations, and tests together because all must agree on one event pipeline. -->
+
 > **Who this is for**: Python backend developers who understand stdlib
 > [logging](logging/README.md) and need searchable event fields, request-scoped
 > context, consistent third-party logs, and a production-safe processor pipeline.
@@ -38,7 +40,7 @@ Structured logging emits **key-value pairs**, typically as JSON:
 {"event": "payment_processed", "user_id": 42, "amount": 99.50, "order_id": 1081, "timestamp": "2025-07-05T15:00:00Z", "level": "info"}
 ```
 
-Now every log aggregator (Datadog, ELK, CloudWatch, Loki) can:
+Now every log aggregator (Datadog, the Elastic/Logstash/Kibana or ELK log-search stack, CloudWatch, Loki) can:
 
 - Index fields automatically
 - Filter by `user_id=42` without regex
@@ -811,7 +813,7 @@ Colored, aligned, easy to scan by eye.
 {"event": "request_completed", "duration_ms": 45.2, "method": "GET", "path": "/orders/123", "request_id": "abc-123", "status_code": 200, "level": "info", "timestamp": "2025-07-05T15:00:00Z"}
 ```
 
-One JSON object per line. Machine-parseable. Ready for Datadog, ELK, CloudWatch.
+One JSON object per line. Machine-parseable. Ready for Datadog, the ELK log-search stack, or CloudWatch.
 
 ### Comparison
 
@@ -920,7 +922,7 @@ log.debug("debug_checkpoint", order_id=order_id)
 ### Mistake 6: Logging sensitive data
 
 ```python
-# ❌ PII in logs -- compliance violation
+# ❌ Personally identifiable information (PII) in logs -- compliance violation
 log.info("user_authenticated", email=user.email, password=password)
 
 # ✅ Use a redaction processor (see Section 4) or simply don't log it

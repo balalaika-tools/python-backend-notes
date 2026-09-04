@@ -72,7 +72,7 @@ Most of this section is about **token-based** auth (JWTs + an auth header). The 
 | **Cross-domain** | Hard — cookies are scoped to a domain; third-party cookies are dying in browsers | Easy — Bearer token in the `Authorization` header works anywhere |
 | **Mobile / CLI clients** | Awkward — needs cookie jar emulation | Natural — fetch a token, send as header |
 | **XSS risk** | Lower — cookie can be `HttpOnly` and the JS can't read it | Higher — tokens are usually stored in localStorage or memory where JS can reach them |
-| **CSRF risk** | Yes — cookies are sent automatically by the browser; need CSRF tokens / SameSite=Strict | No (in practice) — tokens are sent by app code explicitly; the browser doesn't auto-attach |
+| **CSRF risk** | Yes — cookies are sent automatically by the browser; use CSRF tokens and an appropriate `SameSite` policy | Depends on transport — an automatically sent token cookie remains CSRF-relevant; an `Authorization` header is not auto-attached, but a script-readable token increases cross-site scripting theft impact |
 | **Size** | Small cookie (a session ID) | Larger header — JWTs are commonly 1–4 KB; matters on every request |
 | **Downstream services** | Need to verify the session, usually via a central auth service | Self-contained — any service with the JWKS can verify |
 

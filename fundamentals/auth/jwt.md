@@ -17,6 +17,28 @@
 
 **JWT way:** Put the proof directly in the token. The token contains all the info your API needs (who the user is, what they can do, when it expires). Sign it with a private key so no one can tamper with it. Now your API can verify tokens **without calling any external service.**
 
+A minimal access-token trust decision looks like this once the issuer's signing key has been selected
+from its published key set:
+
+```python
+claims = jwt.decode(
+    token,
+    signing_key,
+    algorithms=["RS256"],
+    issuer="https://auth.example.com/",
+    audience="https://api.orders.example.com",
+    options={"require": ["exp", "iat", "iss", "aud", "sub"]},
+)
+if "orders:read" not in claims.get("scope", "").split():
+    raise PermissionError("missing orders:read")
+
+print(claims["sub"])  # user-123 for an accepted token
+```
+
+Changing `aud` to another API, expiring `exp`, changing the signature, or removing the required
+scope produces rejection rather than an identity. Key discovery and the complete validator are
+owned later in this note; this trace establishes the checks before rotation and library alternatives.
+
 ```
 Session approach:     Request → lookup session_id in DB → get user info
 JWT approach:         Request → verify token signature (local, fast) → read claims
@@ -26,7 +48,7 @@ JWT approach:         Request → verify token signature (local, fast) → read 
 
 ## JWT Structure
 
-A JWT is three chunks of JSON, individually base64url-encoded, joined by dots:
+A JWT is three chunks of JSON, individually encoded with URL-safe Base64 (base64url), joined by dots:
 
 ```
 eyJhbGciOiJSUzI1NiIsImtpZCI6ImFiYzEyMyJ9  .  eyJzdWIiOiJ1c2VyLXV1aWQiLCJleHAiOjE3MDB9  .  <signature>
@@ -44,8 +66,14 @@ eyJhbGciOiJSUzI1NiIsImtpZCI6ImFiYzEyMyJ9  .  eyJzdWIiOiJ1c2VyLXV1aWQiLCJleHAiOjE
 
 | Field | Meaning |
 |-------|---------|
-| `alg` | Signing algorithm — `RS256` (RSA + SHA-256) or `ES256` (ECDSA) for asymmetric; `HS256` for symmetric (shared secret) |
+| `alg` | Signing algorithm — `RS256` (Rivest–Shamir–Adleman signatures with SHA-256) or `ES256` (elliptic-curve digital signatures) for asymmetric; `HS256` for symmetric (shared secret) |
 | `kid` | Key ID — tells the verifier which public key was used to sign this token. Important because issuers rotate keys. |
+
+The header is attacker-controlled until verification. In an algorithm-confusion attack, an attacker
+changes `alg` and relies on a permissive verifier to choose a different verification method—possibly
+misusing public key material as a shared secret. A configured `algorithms=["RS256"]` allowlist moves
+that decision from the token into trusted verifier configuration; the token may identify a key, but
+it never chooses the verification algorithm.
 
 ### Payload (Claims)
 
@@ -140,7 +168,7 @@ Token verification: your API verifies with matching public key
 If signature valid → issuer definitely created this token, nobody tampered
 ```
 
-**Cache the JWKS.** It changes rarely (only when the issuer rotates keys). Fetching it per-request adds latency and creates a dependency on the auth server for every API call. Cache with a TTL of 15-60 minutes and refresh on `kid` miss.
+**Cache the JWKS.** It changes rarely (only when the issuer rotates keys). Fetching it per-request adds latency and creates a dependency on the auth server for every API call. Cache with a time to live (TTL)—an expiry for the cached value—of 15–60 minutes and refresh on `kid` miss.
 
 ### Key Rotation
 
@@ -200,7 +228,10 @@ When your API receives `Authorization: Bearer <token>`, validate in this order:
 
 ### Clock-Skew Leeway on `exp` / `nbf` / `iat`
 
-Clocks drift. The issuer and your API do not share a wall clock, and even with NTP the difference between two machines is often tens to hundreds of milliseconds — worse across cloud regions or on clients behind bad NTP. Without leeway, a token that is *just barely* issued or about to expire can fail validation on one of the two sides and succeed on the other.
+Clocks drift. The issuer and your API do not share a wall clock, and even with Network Time
+Protocol (NTP) synchronization the difference between two machines is often tens to hundreds of
+milliseconds—worse across cloud regions or on poorly synchronized clients. Without leeway, a token
+that is *just barely* issued or about to expire can fail validation on one side and succeed on the other.
 
 RFC 7519 §4.1.4 explicitly allows implementers to accept **"some small leeway, usually no more than a few minutes"** on `exp` (and by symmetry `nbf`, `iat`). The conventional value is **0–60 seconds** — large enough to absorb typical NTP skew, small enough that an attacker re-using a just-expired token barely gets any extra window.
 
@@ -311,68 +342,15 @@ def validate_token(
     )
 ```
 
-### Full Validation with python-jose
+### Existing `python-jose` code should keep the same trust contract
 
-> **Prefer PyJWT.** `python-jose` is effectively unmaintained (no release since 2021) and has shipped with vulnerable transitive dependencies; FastAPI dropped it from its docs in favor of PyJWT. Use the PyJWT example above for new code. This example is kept only because a lot of existing Cognito/FastAPI code still uses `jose`. If you need JWE/encrypted tokens (which PyJWT does not do), prefer the actively maintained [`joserfc`](https://jose.authlib.org/) or `authlib` over `python-jose`.
-
-Note also that the example below verifies the signature manually and then reads claims with `get_unverified_claims`. That is correct *only* because the signature is checked first on the same token bytes — keep that ordering. PyJWT's `jwt.decode` does signature + claim validation in one call and is harder to get wrong.
-
-```python
-from jose import jwk, jwt as jose_jwt
-from jose.utils import base64url_decode
-from typing import Optional
-import urllib.request
-import json
-import time
-
-
-_jwks_cache: Optional[dict] = None
-
-
-def get_jwks(jwks_url: str) -> dict:
-    global _jwks_cache
-    if _jwks_cache is None:
-        with urllib.request.urlopen(jwks_url) as f:
-            _jwks_cache = json.loads(f.read())
-    return _jwks_cache
-
-
-def validate_token(
-    token: str,
-    *,
-    jwks_url: str,
-    issuer: str,
-    audience: Optional[str] = None,
-    token_use: Optional[str] = None,  # e.g. "access" or "id" (Cognito-specific)
-) -> dict:
-    headers = jose_jwt.get_unverified_headers(token)
-    kid = headers["kid"]
-
-    jwks = get_jwks(jwks_url)
-    key_data = next((k for k in jwks["keys"] if k["kid"] == kid), None)
-    if not key_data:
-        raise ValueError(f"Public key not found for kid={kid!r}")
-
-    public_key = jwk.construct(key_data)
-    message, encoded_sig = token.rsplit(".", 1)
-    decoded_sig = base64url_decode(encoded_sig.encode())
-
-    if not public_key.verify(message.encode(), decoded_sig):
-        raise ValueError("Token signature verification failed")
-
-    claims = jose_jwt.get_unverified_claims(token)
-
-    if claims["exp"] < time.time():
-        raise ValueError("Token is expired")
-    if claims["iss"] != issuer:
-        raise ValueError(f"Invalid issuer: expected {issuer!r}, got {claims['iss']!r}")
-    if audience and claims.get("aud") != audience:
-        raise ValueError("Invalid audience")
-    if token_use and claims.get("token_use") != token_use:
-        raise ValueError(f"Invalid token_use: expected {token_use!r}")
-
-    return claims
-```
+`python-jose` released 3.4.0 and 3.5.0 after its earlier maintenance gap, so evaluate current
+security advisories and API trade-offs rather than treating release age alone as the decision.
+For new validation code, the PyJWT implementation above is the canonical owner because one library
+call pins the algorithm and requires issuer, audience, and expiry. Existing `python-jose` code must
+enforce that same non-optional contract plus the endpoint's token profile; do not copy a manual
+signature-only verifier. For JSON Web Encryption (JWE), an encrypted JOSE token format, evaluate an
+actively maintained encryption-capable library such as `joserfc` or `authlib`.
 
 ### FastAPI Dependency
 
@@ -501,10 +479,17 @@ This is the generic version of what managed IdPs call refresh-token rotation. If
 
 ## Debugging
 
-```bash
-# Decode a JWT in the terminal
-echo "your.jwt.token" | cut -d. -f2 | base64 -d | python3 -m json.tool
+```python
+# Offline inspection only. Use a deliberately fake token, never a real bearer credential.
+import base64
+import json
 
-# Or use the website
-# https://jwt.io — paste any JWT, see decoded header and payload
+fake_token = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJkZW1vIn0.signature"
+payload = fake_token.split(".")[1]
+payload += "=" * (-len(payload) % 4)
+print(json.loads(base64.urlsafe_b64decode(payload)))
+# {'sub': 'demo'}
 ```
+
+Decoding does not validate a token. Never send a real bearer token to a third-party debugging site;
+anyone who receives it can use it until it expires.

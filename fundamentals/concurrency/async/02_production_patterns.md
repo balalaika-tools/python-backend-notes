@@ -309,13 +309,13 @@ Use separate, named executors when dependencies need independent capacity budget
 
 Useful async service signals include:
 
-- Event-loop delay.
+- **Minimum launch set — event-loop delay.**
 - Active tasks by operation.
 - Queue depth, age of oldest item, and rejection count.
-- Semaphore or connection-pool wait time.
+- **Minimum launch set — semaphore or connection-pool wait time plus active work.**
 - In-flight requests per downstream.
-- Timeout and cancellation counts by cause.
-- Shutdown drain duration and abandoned-work count.
+- **Minimum launch set — timeout and cancellation counts by cause.**
+- **Minimum launch set — shutdown drain duration and abandoned-work count.**
 - Thread/process executor queue depth and utilization.
 
 Enable diagnostics in development:
@@ -337,15 +337,18 @@ Asyncio slow-callback warnings are not an event-loop-lag metric by themselves. A
 
 ## 9. Production Checklist
 
-- [ ] Fan-out over user or external input has both an active-work limit and a waiting-work policy.
-- [ ] End-to-end deadlines include capacity waiting, not only socket time.
+The **bold items** are launch gates. The remaining checks become required when the workload crosses
+the corresponding executor, multi-process, or detached-work boundary.
+
+- [ ] **Fan-out over user or external input has both an active-work limit and a waiting-work policy.**
+- [ ] **End-to-end deadlines include capacity waiting, not only socket time.**
 - [ ] Driver-level phase timeouts remain enabled.
-- [ ] Cancellation cleanup uses `finally` and re-raises `CancelledError`.
+- [ ] **Cancellation cleanup uses `finally` and re-raises `CancelledError`.**
 - [ ] Detached tasks have an owner, failure observer, and shutdown path.
 - [ ] Blocking calls and executor functions have their own termination strategy.
-- [ ] Shutdown stops admission before draining work.
+- [ ] **Shutdown stops admission before draining work.**
 - [ ] Local semaphores and queues are not mistaken for cross-process limits.
-- [ ] Event-loop delay, queueing, saturation, cancellation, and rejection are measured.
+- [ ] **Event-loop delay, queueing, saturation, cancellation, and rejection are measured.**
 
 ---
 

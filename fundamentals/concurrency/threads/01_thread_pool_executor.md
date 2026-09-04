@@ -340,14 +340,18 @@ Use `contextvars.ContextVar` for request context. See [../async/03_contextvars.m
 
 ## 11. Common Failure Modes
 
+Start with the **bold checks**: dependency timeouts, pool lifetime, saturated-pool waits, and the
+difference between cancelling a wait and stopping a running call. The other rows become relevant
+when state is shared or threads cross into async/free-threaded execution.
+
 - Using threads for pure Python CPU speedups on the default GIL build.
 - Mutating globals from multiple threads without locks.
-- Creating a new pool per request.
-- Forgetting timeouts inside blocking network calls.
-- Waiting on futures from inside the same saturated pool.
+- **Creating a new pool per request.**
+- **Forgetting timeouts inside blocking network calls.**
+- **Waiting on futures from inside the same saturated pool.**
 - Using `queue.Queue.get()` directly on the event loop.
 - Assuming code that "worked under the GIL" is safe on free-threaded Python.
-- Assuming a `Future` timeout stopped the underlying call.
+- **Assuming a `Future` timeout stopped the underlying call.**
 - Letting one blocking dependency saturate the default executor used by unrelated code.
 - Relying on daemon or executor threads to complete critical work during process exit.
 

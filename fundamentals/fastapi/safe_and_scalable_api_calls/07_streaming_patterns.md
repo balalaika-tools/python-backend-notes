@@ -91,7 +91,7 @@ async with asyncio.timeout(30):  # WRONG: stream may take 60s total
 HTTPX's `read` timeout already works per-chunk:
 ```python
 client = httpx.AsyncClient(
-    timeout=httpx.Timeout(read=30.0)  # 30s between chunks, not total
+    timeout=httpx.Timeout(30.0, read=30.0)  # 30s between chunks, not total
 )
 ```
 

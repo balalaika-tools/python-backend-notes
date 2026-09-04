@@ -8,6 +8,75 @@
 
 ---
 
+## First runnable baseline: classify capacity separately from dependency failure
+
+This self-contained transport makes no network call. It runs one success, one local admission
+failure, and one downstream read failure, then closes the client:
+
+```python
+import asyncio
+import httpx
+
+
+class AdmissionTimeout(Exception):
+    pass
+
+
+async def provider(request: httpx.Request) -> httpx.Response:
+    if request.url.path == "/slow":
+        raise httpx.ReadTimeout("provider stalled", request=request)
+    return httpx.Response(200, json={"result": "ok"})
+
+
+async def call(client: httpx.AsyncClient, gate: asyncio.Semaphore, path: str):
+    try:
+        async with asyncio.timeout(0.01):
+            await gate.acquire()
+    except TimeoutError as exc:
+        raise AdmissionTimeout("local capacity unavailable") from exc
+
+    try:
+        return await client.get(f"https://provider.test{path}")
+    finally:
+        gate.release()
+
+
+async def main() -> None:
+    gate = asyncio.Semaphore(1)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(provider)) as client:
+        response = await call(client, gate, "/ok")
+        print(response.status_code, response.json())
+
+        await gate.acquire()  # hold local capacity to make admission fail
+        try:
+            await call(client, gate, "/ok")
+        except AdmissionTimeout:
+            print("admission_timeout")
+        finally:
+            gate.release()
+
+        try:
+            await call(client, gate, "/slow")
+        except httpx.ReadTimeout:
+            print("downstream_read_timeout")
+
+
+asyncio.run(main())
+# 200 {'result': 'ok'}
+# admission_timeout
+# downstream_read_timeout
+```
+
+The semaphore wait fails before execution and must not be retried locally; `ReadTimeout` means an
+admitted provider attempt stalled and may be eligible for a bounded retry if the operation is
+idempotent. If the program hangs instead of printing `admission_timeout`, the capacity wait is not
+inside its own deadline.
+
+**Stop here** for a small local integration whose calls are already bounded and non-retryable.
+Continue when real load introduces queues, retries, multiple pods, or shared provider quotas.
+
+---
+
 ## Prerequisites
 
 Before reading this guide, understand HTTPX internals:
@@ -58,7 +127,7 @@ Removing any layer introduces known failure modes.
 
 ---
 
-## Quick Start
+## Composed production pattern
 
 ### Minimal Safe Pattern
 
@@ -151,8 +220,9 @@ async def call_api(payload: dict):
 **Working result by entry 2**: run the Quick Start above, then explain why admission failure and a
 downstream attempt timeout take different retry paths.
 
-1. **Do:** run the [Quick Start](#quick-start) and observe either the provider response or a named exception.
-2. **Understand:** [Core Concepts](01_core_concepts.md) and [Concurrency & Timeouts](02_concurrency_and_timeouts.md).
+1. **Do:** run the [first baseline](#first-runnable-baseline-classify-capacity-separately-from-dependency-failure) and observe all three outputs.
+2. **Understand:** use its admission-versus-attempt contrast, then read [Call Patterns](03_call_patterns.md) for the canonical composed implementation.
+3. **Deepen as needed:** [Core Concepts](01_core_concepts.md) and [Concurrency & Timeouts](02_concurrency_and_timeouts.md) own the full capacity and timeout references.
 3. **Harden:** [Call Patterns](03_call_patterns.md) — add the canonical composition and failure mapping.
 
 **Stop here if** one process owns the quota and only idempotent operations are retried. Continue to

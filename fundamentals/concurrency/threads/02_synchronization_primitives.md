@@ -451,17 +451,21 @@ If the update count is zero, another writer won the race and the caller should r
 
 ## 16. Quick Map
 
+The normal toolkit is **`Lock`, `Event`, `Semaphore`, `Condition`, and `Queue`**. Try-locks,
+barriers, reader-writer locks, and compare-and-swap (CAS) are conditional mechanisms after those
+defaults do not express the required coordination.
+
 | Concept | Python shape |
 |---------|--------------|
 | Thread lifecycle | `Thread(...).start()`, cooperative stop signal, `join()` |
 | Thread pool | `concurrent.futures.ThreadPoolExecutor` |
-| Mutex | `threading.Lock` |
+| **Mutex** | **`threading.Lock`** |
 | Reentrant lock | `threading.RLock` |
 | Try-lock | `lock.acquire(blocking=False)` or `lock.acquire(timeout=...)` |
-| Semaphore | `threading.Semaphore`, `threading.BoundedSemaphore` |
-| Condition variable | `threading.Condition` |
-| Signaling | `threading.Event`, `Condition.notify_all()` |
-| Blocking queue | `queue.Queue` |
+| **Semaphore** | **`threading.Semaphore`, `threading.BoundedSemaphore`** |
+| **Condition variable** | **`threading.Condition`** |
+| **Signaling** | **`threading.Event`, `Condition.notify_all()`** |
+| **Blocking queue** | **`queue.Queue`** |
 | Producer-consumer | `queue.Queue(maxsize=...)` plus worker threads |
 | Start together / phase rendezvous | `threading.Barrier` |
 | Reader-writer | Custom/library primitive; no stdlib `RWLock` |
